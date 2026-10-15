@@ -1,4 +1,4 @@
-# Guide détaillé — App web Yassine
+# Guide détaillé — calibration d'options Bitcoin
 
 Retour au [README](../README.md).
 
@@ -267,7 +267,7 @@ Historique quotidien complet de chaque future Deribit -> futures.js.
    ```
    git init
    git add .
-   git commit -m "App web Yassine"
+   git commit -m "Calibration d'options Bitcoin"
    git branch -M main
    git remote add origin https://github.com/yassinebarnicha/yassinebarnicha.github.io.git
    git push -u origin main

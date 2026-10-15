@@ -1,4 +1,4 @@
-# App web Yassine — calibration d'options Bitcoin dans le navigateur
+# Calibration d'options Bitcoin dans le navigateur
 
 **Pricer, calibrer et analyser les options BTC de Deribit avec onze modèles à sauts et volatilité stochastique,
 entièrement dans le navigateur : aucun serveur de calcul, aucune installation.**
