@@ -3,7 +3,7 @@
 **Pricer, calibrer et analyser les options BTC de Deribit avec onze modèles à sauts et volatilité stochastique,
 entièrement dans le navigateur : aucun serveur de calcul, aucune installation.**
 
-▶ **Démo en ligne : https://yassinebarnicha.github.io/Calibration_a_la_main_BTC_SVJD/**
+▶ **Démo en ligne : https://yassinebarnicha.github.io/**
 
 ![Calibration du modèle de Bates sur les smiles Deribit du 26/08/2026](docs/apercu_calibration.png)
 
