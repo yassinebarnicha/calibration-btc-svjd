@@ -289,11 +289,11 @@ Historique quotidien complet de chaque future Deribit -> futures.js.
    git add .
    git commit -m "Calibration d'options Bitcoin"
    git branch -M main
-   git remote add origin https://github.com/yassinebarnicha/yassinebarnicha.github.io.git
+   git remote add origin https://github.com/yassinebarnicha/calibration-btc-svjd.git
    git push -u origin main
    ```
 3. Sur GitHub : **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)`**.
-   Le site est en ligne quelques minutes plus tard à `https://yassinebarnicha.github.io/`, servi par
+   Le site est en ligne quelques minutes plus tard à `https://yassinebarnicha.github.io/calibration-btc-svjd/`, servi par
    un réseau mondial (rapide depuis tous les continents). Rien à payer, aucun serveur à gérer : la page et ses
    données sont des fichiers statiques, tout le calcul se fait dans le navigateur du visiteur.
 
