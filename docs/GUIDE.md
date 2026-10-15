@@ -106,6 +106,15 @@ Retour au [README](../README.md).
    générations, mutation, recombinaison, tol, atol, graine, injection du point actuel (DE), avec deux préréglages
    « Défauts scipy » et « Réglages de production » (ceux de la chaîne de calibration Python d'origine). Ils sont enregistrés avec le réglage.
 
+## Sur téléphone
+
+- En haut, une barre fixe : « ☰ » (à gauche) ouvre le volet des **onglets**, la RMSE au milieu, « ☰ Réglages » (à
+  droite) ouvre le volet des **réglages de l'onglet** (curseurs, point de départ, pricer…).
+- Au centre, les smiles, **une échéance par rang** ; en bas, toujours visible, **« Optimiser »** avec sa progression
+  et son état.
+- Un volet se referme par « ✕ Fermer », en choisissant un onglet, ou en touchant le voile sombre.
+- La page est légèrement dézoomée (85 %) ; sur ordinateur, elle l'est à 80 %.
+
 ## Vitesse et fluidité
 
 - **Réglages par défaut les plus rapides** : pricer COS (N = 512, L = 24) et modèle de Bates (Heston + sauts
@@ -119,9 +128,20 @@ Retour au [README](../README.md).
   rafraîchi environ toutes les 100 ms et reprend l'évaluation que l'optimiseur vient de faire au lieu de la
   refaire ; les smiles sont dessinés avant les autres écritures de la page ; l'onglet Grecques n'est recalculé
   qu'une fois par seconde pendant une optimisation (et à la fin).
-- **Ordre de grandeur** (Bates, 6 échéances, ~300 options, COS) : une évaluation ≈ 3 ms, soit environ 300
-  évaluations par seconde ; un rafraîchissement complet de l'écran ≈ 5 à 9 ms. PROJ (N = 2048) coûte environ
-  3 fois plus ; un modèle à deux composantes de sauts (11 paramètres) demande aussi plus d'itérations.
+- **Pricer COS** : le module complexe se calcule sans `Math.hypot` (lent) et la série s'arrête là où son reste est
+  borné sous 10⁻¹⁰ $ : les longues échéances n'ont besoin que d'une fraction des N termes.
+- **Mesures** (Chrome, Bates, 6 échéances, 222 options, COS N = 512) :
+
+  | Bloc | Temps |
+  |---|---|
+  | une évaluation complète (prix, IV, perte, métriques) | ≈ 1,3 ms |
+  | dont la fonction caractéristique | ≈ 0,7 ms |
+  | dont l'inversion des volatilités implicites | ≈ 0,15 ms |
+  | Nelder–Mead | ≈ 650 évaluations par seconde |
+  | un rafraîchissement de l'écran (smiles, métriques, curseurs) | ≈ 3,5 ms |
+
+  PROJ (N = 2048) coûte environ 3 fois plus ; un modèle à deux composantes de sauts (11 paramètres) demande aussi
+  plus d'itérations.
 
 ## Enregistrer et exporter
 
