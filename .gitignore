@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+instantanes/
+sources/cache_futures/
+resultats/
+*.tmp
