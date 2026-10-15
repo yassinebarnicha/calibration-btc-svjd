@@ -993,7 +993,7 @@ header > .jour .btn{height:34px;padding:0 11px;line-height:1}
               </div>
               <label class="chk"><input type="checkbox" id="de-x0" checked> Injecter les paramètres actuels dans la population</label>
               <div class="row"><button class="btn" type="button" id="de-scipy">Défauts scipy</button><button class="btn" type="button" id="de-projet">Réglages de production</button></div>
-              <div class="hint">Recherche dans l'espace des curseurs, dans les bornes actuelles ; les paramètres verrouillés restent fixes. Population initiale en hypercube latin. Arrêt quand écart-type(pertes) ≤ atol + tol·|moyenne| sur la population, ou au plafond de générations. Défauts scipy : best1bin, mutation 0,5–1,0, recombinaison 0,7, tol 0,01. Production : rand1bin, 0,7–1,5, 0,6, tol 1e-7, atol 1e-8, popsize 25. Même graine, mêmes réglages, mêmes données → même résultat. Coût : popsize × libres évaluations par génération (≈ 0,2 s avec COS, ≈ 0,7 s avec PROJ pour 8 paramètres libres ; un surrogate évalue la population en un seul lot).</div>
+              <div class="hint">Recherche dans l'espace des curseurs, dans les bornes actuelles ; les paramètres verrouillés restent fixes. Population initiale en hypercube latin. Arrêt quand écart-type(pertes) ≤ atol + tol·|moyenne| sur la population, ou au plafond de générations. Défauts scipy : best1bin, mutation 0,5–1,0, recombinaison 0,7, tol 0,01. Production : rand1bin, 0,7–1,5, 0,6, tol 1e-7, atol 1e-8, popsize 25. Même graine, mêmes réglages, mêmes données → même résultat. Coût : popsize × libres évaluations par génération (≈ 0,2 s avec COS, ≈ 0,7 s avec PROJ pour 8 paramètres libres).</div>
             </div>
           </details>
           
@@ -4169,7 +4169,7 @@ async function __recupererDeribit(signale) {
       + "e<sup>−rT</sup>(N(d₁) − 1) (put) ; Γ = e<sup>−rT</sup>n(d₁)/(Fσ√T) ; "
       + "Vega = e<sup>−rT</sup>F n(d₁)√T ; Θ = [rV − e<sup>−rT</sup>F n(d₁)σ/(2√T)]/365."
       + "<br><br><b>Modèle actif</b> : différences finies centrées sur son pricer de Fourier "
-      + "(COS ou PROJ, avec les N et L choisis ; COS si un surrogate est choisi) : Δ et Γ en "
+      + "(COS ou PROJ, avec les N et L choisis) : Δ et Γ en "
       + "déplaçant F de ±0,1 %, Vega en déplaçant la vol instantanée σ₀ de ±0,1 % "
       + "(σ en Black-Scholes, √v₀ en Heston, √(v₀₁ + v₀₂) en double Heston), Θ en déplaçant "
       + "l'échéance d'un jour de part et d'autre. Bates n'a pas de formule fermée de ses "
@@ -4889,6 +4889,11 @@ async function __recupererDeribit(signale) {
     const v = parseInt(localStorage.getItem(CLE), 10);
     if (v >= 0 && v < panneaux.length) depart = v;
   } catch (e) {}
+  /* un onglet peut etre ouvert par l'adresse : .../#GEX, .../#Surface%20de%20vol */
+  const parAdresse = () => { const h = decodeURIComponent(location.hash.slice(1)).trim().toLowerCase();
+    return h ? etiquettes.findIndex(t => t.toLowerCase() === h) : -1; };
+  if (parAdresse() >= 0) depart = parAdresse();
+  window.addEventListener("hashchange", () => { const i = parAdresse(); if (i >= 0) montrer(i); });
   montrer(depart);
 })();
 </script>
