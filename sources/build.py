@@ -80,6 +80,7 @@ def main(argv=None):
             raise SystemExit("jour absent de ../jours : " + a.jour)
         jour0 = cles[-1]
     html = (ICI / "template_full.html").read_text(encoding="utf-8")
+    html = html.replace("__DESIGN_CSS__", (ICI / "design.css").read_text(encoding="utf-8"))
     html = html.replace("__PRICER__", (ICI / "pricer.js").read_text(encoding="utf-8"))
     html = html.replace("__FUTURES__", futures_json())
     html = html.replace("__DATA__", jour_json(jour0))

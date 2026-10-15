@@ -23,9 +23,9 @@
     return [(a[0] * b[0] + a[1] * b[1]) / d, (a[1] * b[0] - a[0] * b[1]) / d];
   }
   function cexp(a) { const e = Math.exp(a[0]); return [e * Math.cos(a[1]), e * Math.sin(a[1])]; }
-  function clog(a) { return [Math.log(Math.hypot(a[0], a[1])), Math.atan2(a[1], a[0])]; }
+  function clog(a) { return [0.5 * Math.log(a[0] * a[0] + a[1] * a[1]), Math.atan2(a[1], a[0])]; }
   function csqrt(a) {                       // principal branch, like numpy
-    const r = Math.hypot(a[0], a[1]);
+    const r = Math.sqrt(a[0] * a[0] + a[1] * a[1]);
     const re = Math.sqrt((r + a[0]) / 2);
     let im = Math.sqrt(Math.max((r - a[0]) / 2, 0));
     if (a[1] < 0) im = -im;
@@ -178,7 +178,7 @@
     const s2 = s * s, rsu = rho * s * u;
     // d = sqrt((rho s u i - k)^2 + s^2 (u^2 + i u))
     const zx = k * k - rsu * rsu + s2 * u * u, zy = -2 * k * rsu + s2 * u;
-    const r = Math.hypot(zx, zy);
+    const r = Math.sqrt(zx * zx + zy * zy);
     const dr = Math.sqrt((r + zx) / 2);
     let di = Math.sqrt(Math.max((r - zx) / 2, 0)); if (zy < 0) di = -di;
     const nr = k - dr, ni = -rsu - di;                 // num = bm - d
@@ -190,7 +190,7 @@
     const pr = 1 - gr, pi = -gi;                                                            // 1 - g
     const pd = pr * pr + pi * pi;
     const lr = (qr * pr + qi * pi) / pd, li = (qi * pr - qr * pi) / pd;                    // (1 - g e)/(1 - g)
-    const lg0 = Math.log(Math.hypot(lr, li)), lg1 = Math.atan2(li, lr);
+    const lg0 = 0.5 * Math.log(lr * lr + li * li), lg1 = Math.atan2(li, lr);
     const c = k * th / s2;
     const C0 = c * (nr * T - 2 * lg0), C1 = c * (ni * T - 2 * lg1);
     const ar = 1 - xr, ai = -xi, qd = qr * qr + qi * qi;                                    // (1 - e)/(1 - g e)
@@ -321,6 +321,26 @@
       inv1[k] = 1 / (1 + u * u);
       invu[k] = k ? 1 / u : 0;
     }
+    // Troncature exacte de la serie. Le terme k d'une option vaut (psi - chi) re[k], avec
+    // |psi - chi| <= 1/u + 1/sqrt(1 + u^2) + e^a/(1 + u^2). Les termes au-dela de kFin
+    // pesent donc, pour toute option, au plus disc (2/width) K * somme(|re| x borne) :
+    // on coupe la ou ce reste passe sous 1e-10 $. Les longues echeances, dont la fonction
+    // caracteristique s'eteint vite, n'ont besoin que d'une fraction des N termes. Un NaN
+    // dans la serie (pricer hors domaine) annule la coupe : le prix reste NaN comme avant.
+    let kFin = N, eaMax = 0, kMax = 0, dMax = 0;
+    for (let j = 0; j < rows.length; j++) { const R = rows[j];
+      eaMax = Math.max(eaMax, Math.exp(Math.log(R.F / R.K) + shift)); kMax = Math.max(kMax, R.K); dMax = Math.max(dMax, Math.exp(-R.r * T)); }
+    const seuil = 1e-10 / (dMax * (2 / width) * kMax);
+    if (isFinite(seuil) && seuil > 0) {
+      let reste = 0, nan = false;
+      for (let k = N - 1; k >= 1; k--) {
+        if (!(re[k] === re[k])) { nan = true; break; }
+        reste += Math.abs(re[k]) * (invu[k] + Math.sqrt(inv1[k]) + eaMax * inv1[k]);
+        if (reste > seuil) { kFin = k + 1; break; }
+        if (k === 1) kFin = 1;
+      }
+      if (nan) kFin = N;
+    }
     for (let j = 0; j < rows.length; j++) {
       const R = rows[j];
       const a = Math.log(R.F / R.K) + shift;
@@ -330,7 +350,7 @@
       const c1r = Math.cos(du * a), s1r = Math.sin(du * a);
       let cu = 1, su = 0;
       let acc = 0.5 * ((-a) - (1 - ea)) * re[0];                 // terme k = 0, demi-poids
-      for (let k = 1; k < N; k++) {
+      for (let k = 1; k < kFin; k++) {
         const c = cu * c1r - su * s1r;
         su = su * c1r + cu * s1r; cu = c;
         const u = k * du;
