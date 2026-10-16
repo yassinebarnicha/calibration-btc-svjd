@@ -1,311 +1,290 @@
-# Guide détaillé — calibration d'options Bitcoin
+# User guide — Bitcoin option calibration
 
-Retour au [README](../README.md).
+Back to the [README](../README.md) · theory in the [report](../REPORT.pdf).
 
-## Utilisation
+## Using the application
 
-1. **Jour** : liste de tous les jours disponibles. Chaque ligne donne la date, puis en toutes lettres ce qui existe pour ce jour :
-   « 3 calibrations » (jeux calibrés embarqués), « 2 réglages » (tes réglages enregistrés, « dont un final »
-   le cas échéant) et « téléchargé » pour un jour récupéré par *Aujourd'hui*.
-   **Instantané du jour, écrit directement dans `jours/`** :
+1. **Day**: the list of every available day. Each row gives the date, then what exists for that day: "3 calibrations"
+   (embedded calibrated sets), "2 settings" (your saved settings, "one final" if any) and "downloaded" for a day fetched
+   with *Today*.
+   **Today's snapshot, written directly to `jours/`**:
 
    ```
    python sources/aujourdhui.py
    ```
 
-   télécharge la chaîne Deribit du moment (API publique, sans clé), l'écrit dans
-   `jours/<date>.js` (chemin relatif au dossier, rien à choisir), garde le CSV brut dans
-   `instantanes/` et reconstruit la page. Un jour déjà présent à la même date est remplacé
-   par l'instantané plus récent.
-   Le bouton **↻ Aujourd'hui** de la page fait le même téléchargement sans Python : le jour est gardé dans le
-   navigateur (il revient au lancement suivant, marqué « téléchargé »), mais un navigateur n'a pas le droit
-   d'écrire seul dans un dossier : il n'écrit `jours/<date>.js` que si le dossier du site a été
-   désigné une fois dans *Réglages*.
-2. **Modèle** (onglet *Modèle*) : un bloc de variance (Black-Scholes, Heston, double Heston, Heston à sauts de
-   variance) et une loi de sauts (aucune, Merton, bi-log-normale, Kou, CGMY, Variance Gamma, NIG). Le bouton
-   **ⓘ Dynamique** affiche au survol (et fige au clic) la dynamique complète du modèle actif : équations du
-   future et de la variance, loi des sauts, compensateur, fonction caractéristique, contraintes et rôle de chaque
-   paramètre. Survoler une option des listes en donne la dynamique en une ligne.
-   **Appliquer** passe au modèle choisi ; sans changement, **Réappliquer** repart du départ du modèle.
-3. **Point de départ** (onglet *Paramètres et optimiseur*) : la liste ne contient que les jeux **du modèle actif** ;
-   changer de modèle change la liste. Ordre :
-   - *Mes réglages enregistrés* ;
-   - *Calibrations du jour*, de la meilleure RMSE IV à la moins bonne, nommées
-     « moteur · méthode · n éch. · perte · RMSE » (par exemple « COS · DE + local · 6 éch. · prix · 1/vega² égal ·
-     38,6 bps ») ;
-   - *Départ générique* (s'il est de ce modèle) ; *Départ du modèle* (toujours présent).
-   **Charger ce point de départ** charge l'entrée affichée, même si c'est la seule ; avec la case cochée, ses
-   échéances, filtres, pricer, perte et bornes sont rétablis aussi.
-4. **Paramètres** : curseurs et saisie, verrou par paramètre (gelé pendant l'optimisation), bornes. Une intensité de
-   sauts mise à 0 met sa taille (μJ, σJ) à 0 et la fige ; elle revient à sa valeur précédente quand λ redevient
-   positif.
-5. **Perte, pricer, jours empilés** (plusieurs jours calibrés ensemble, certains paramètres libres par jour).
-6. **Grecques** (onglet *Grecques*, dans la zone centrale) : pour chaque option retenue d'une échéance, IV et prix
-   marché / modèle, puis Δ, Γ 1 % (variation du Δ pour +1 % de F), Vega (par point de vol) et Θ (par jour), deux
-   fois : **Black-76** (formules fermées, à l'IV de marché ou à l'IV du modèle) et **modèle actif** (différences
-   finies centrées sur son pricer COS ou PROJ : F ±0,1 %, vol instantanée σ₀
-   ±0,1 %, échéance ±1 jour). Bates n'a pas de formule fermée de ses grecques, pas plus que de son prix : elles
-   passent par la fonction caractéristique. Contrôle : en modèle Black-Scholes, les différences finies retrouvent
-   Black-76 aux décimales affichées (Θ à moins de 0,1 %). Un graphique par grecque (Δ, Γ, Vega, Θ par strike, modèle contre Black-76) et
-   export CSV. L'écart Δ modèle − Δ Black-76 est l'effet du smile sur la couverture.
-7. **Surface de vol** (onglet *Surface de vol*, calculé seulement à son ouverture) : la surface de volatilité
-   implicite du modèle actif en 3D (log-moneyness k = ln(K/F), échéance, vol), pricée sur une grille de 25, 41 ou
-   61 strikes par échéance puis inversée en Black-76, et les IV de marché par-dessus. Deux modes :
-   - **Calibré seulement** : les échéances retenues, les options calibrées (●) et la surface sur leur plage ;
-   - **Tous les points du jour + extrapolation du modèle** : toutes les options du jour sur toutes les échéances
-     (○ celles qui ne servent pas à la calibration, IV du mark) et la surface étendue à toute cette zone ; le
-     survol d'un point donne l'IV du modèle exactement en ce point (extrapolée hors des données calibrées).
-   La surface est toujours pricée en PROJ : sa grille suit les strikes demandés, alors que l'intervalle de
-   troncature de COS se resserre avec l'échéance (à 4 h d'échéance et dans les ailes larges, COS s'écartait de
-   PROJ jusqu'à 2,6·10⁵ $) ; là où le prix du modèle est quasi nul, la vol n'est pas définie et la surface a un
-   trou. Glisser pour tourner, molette pour zoomer, double-clic pour la vue par défaut. Pendant une
-   optimisation, la surface n'est recalculée qu'une fois par seconde. Dessinée sans bibliothèque externe.
-8. **Pricer tes propres options** (onglet *Pricer*) : avec le modèle actif et ses paramètres actuels, en PROJ
-   (juste aussi sur les échéances très courtes et les strikes éloignés).
-   - *À la main* : type, K, F, échéance (jours), r et, si on veut, un prix de marché → prix et IV du modèle, IV de
-     marché et écart, Δ, Γ, Vega, Θ du modèle et de Black-76.
-   - *Fichier CSV* : une ligne par option, colonnes obligatoires `type` (call/put, C/P), `K`, `F` et l'échéance par
-     `T` (années) **ou** `jours` **ou** `echeance` (AAAA-MM-JJ, expiration 08:00 UTC, comptée depuis `valorisation`
-     si la colonne existe, sinon depuis l'instantané du jour) ; facultatives `r`, `prix_marche` ; toute autre
-     colonne est recopiée. Séparateur `,` ou `;` (virgule décimale acceptée avec `;`). Le fichier revient
-     (`<nom>_price.csv`) avec `iv_marche, prix_modele, iv_modele, ecart_iv_bps, ecart_prix, delta/gamma/vega/theta`
-     du modèle et de Black-76, `vol_b76, modele, pricer, erreur` ; une ligne invalide garde ses données et reçoit
-     son message dans `erreur`. Bouton *CSV modèle* : un fichier exemple à remplir.
-9. **Options exotiques par Monte-Carlo** (onglet *Pricer*, calcul seulement au clic, arrêtable) :
-   - *Paramètres* : les actuels (curseurs, résultat de l'optimisation) ou n'importe quel réglage enregistré ou
-     calibration du jour du modèle actif ;
-   - *Produits* : asiatique, barrière, digitale, américaine (Longstaff-Schwartz), lookback, européenne ; ou
-     **composé** : valeur observée (F final, moyenne, max, min) × payoff (call, put, digitale) × jusqu'à deux
-     barrières (up/down, in/out) × exercice (européen, américain) ; ou **formule libre** (variables `FT, MOY, MAX,
-     MIN, F0, K, B, B2, Q, T`, fonctions `max, min, abs, exp, log, sqrt`, comparaisons valant 1 ou 0) ;
-   - *Simulation* : facteurs CIR par QE (Andersen 2008), sauts Merton, bi-log-normaux, Kou, Variance Gamma, NIG
-     (CGMY n'a pas de simulation exacte simple : non proposé) ; surveillance discrète à chaque pas ;
-   - *Américaine* : régression sur 1, x, x², x³ et la valeur européenne Black-76 de l'option restante, qui sert
-     aussi de plancher à la continuation (sans elle, le bruit de la régression faisait exercer à tort) ; contrôlé :
-     prime ≈ 0 pour r = 0, positive pour r > 0 ;
-   - *Contrôle* : l'européenne de strike K est simulée sur les mêmes trajectoires et comparée à son prix de
-     Fourier (écart en nombre d'erreurs standard ; |écart| > 3 σ signale un biais de discrétisation) ; elle sert
-     aussi de variable de contrôle. Vérifié sur Black-Scholes, Heston + Merton, double Heston + bi-log-normal,
-     Heston à sauts de variance + Kou, Heston + VG, Heston + NIG (écarts de −1,1 à +1,9 σ).
-10. **GEX — gamma exposure** (onglet *GEX*, calculé à son ouverture) : par option, signe × open interest (BTC) × Γ ×
-    F² × 1 % = le delta en dollars à racheter ou vendre pour un mouvement de +1 % du future. Échéances retenues ou
-    toutes ; gamma de Black-76 à l'IV du mark ou du modèle ; convention « teneurs de marché » (+ calls, − puts) ou
-    gamma brut. Tuiles : GEX total, niveau de bascule (zero gamma), call wall, put wall, calls/puts et open
-    interest ; graphiques : GEX net par strike et GEX total selon le niveau du future (−20 % à +20 %). L'open
-    interest vient des instantanés Deribit (colonne `oi` des jours ; absent des deux jours reconstruits).
-11. **Optimiseur** (Feller imposée ou non, dans les bornes des curseurs, paramètres verrouillés fixes) :
+   downloads the current Deribit chain (public API, no key), writes it to `jours/<date>.js` (path relative to the
+   folder, nothing to choose), keeps the raw CSV in `instantanes/` and rebuilds the page. A day already present at the
+   same date is replaced by the more recent snapshot.
+   The page's **↻ Today** button does the same download without Python: the day is kept in the browser (it comes back
+   at the next launch, marked "downloaded"), but a browser may not write to a folder on its own: it writes
+   `jours/<date>.js` only if the site folder has been chosen once in *Settings*.
+2. **Model** (*Model* tab): a variance block (Black-Scholes, Heston, double Heston, Heston with variance jumps) and a
+   jump law (none, Merton, bi-lognormal, Kou, CGMY, Variance Gamma, NIG). The **ⓘ Dynamics** button shows on hover (and
+   pins on click) the full dynamics of the active model, typeset in LaTeX: equations of the future and of the variance,
+   jump law, compensator, characteristic function, constraints and role of each parameter. Hovering an entry of the lists
+   gives its dynamics in one line. **Apply** switches to the chosen model; without a change, **Re-apply** restarts from
+   the model's starting values.
+3. **Starting point** (*Parameters and optimiser* tab): the list holds only the sets **of the active model**; changing
+   the model changes the list. Order:
+   - *My saved settings*;
+   - *Calibrations of the day*, from the best IV RMSE to the worst, named "engine · method · n mat. · loss · RMSE" (for
+     example "COS · DE + local · 6 mat. · price · 1/vega² equal · 38.6 bps");
+   - *Generic start* (if it belongs to this model); *Model start* (always present).
+   **Load this starting point** loads the entry shown, even if it is the only one; with the box ticked, its maturities,
+   filters, pricer, loss and bounds are restored too.
+4. **Parameters**: sliders and input fields, a lock per parameter (frozen during the optimisation), bounds. A jump
+   intensity set to 0 sets its size (μJ, σJ) to 0 and freezes it; it returns to its previous value when λ becomes positive
+   again.
+5. **Loss, pricer, stacked days** (several days calibrated together, some parameters free per day).
+6. **Greeks** (*Greeks* tab, in the central area): for each selected option of a maturity, market / model IV and price,
+   then Δ, Γ 1 % (change of Δ for +1 % of F), Vega (per vol point) and Θ (per day), twice: **Black-76** (closed forms, at
+   the market IV or at the model IV) and **active model** (central finite differences on its COS or PROJ pricer: F ±0.1 %,
+   instantaneous vol σ₀ ±0.1 %, maturity ±1 day). Bates has no closed form for its Greeks, nor for its price: they go
+   through the characteristic function. Check: with the Black-Scholes model, the finite differences recover Black-76 to
+   the decimals shown (Θ within 0.1 %). One chart per Greek (Δ, Γ, Vega, Θ by strike, model against Black-76) and a CSV
+   export. The gap model Δ − Black-76 Δ is the smile effect on the hedge.
+7. **Vol surface** (*Vol surface* tab, computed only when opened): the implied volatility surface of the active model in
+   3-D (log-moneyness k = ln(K/F), maturity, vol), priced on a grid of 25, 41 or 61 strikes per maturity and inverted with
+   Black-76, with the market IVs on top. Two modes:
+   - **Calibrated only**: the selected maturities, the calibrated options (●) and the surface over their range;
+   - **All the day's points + model extrapolation**: every option of the day on every maturity (○ those not used in the
+     calibration, mark IV) and the surface extended to that whole area; hovering a point gives the model IV exactly at
+     that point (extrapolated outside the calibrated data).
+   The surface is always priced with PROJ: its grid follows the requested strikes, while the truncation interval of COS
+   narrows with the maturity (at 4 h to expiry and in wide wings, COS differed from PROJ by up to 2.6·10⁵ $); where the
+   model price is almost zero, the vol is undefined and the surface has a hole. Drag to rotate, wheel to zoom,
+   double-click for the default view. During an optimisation the surface is recomputed only once per second. Drawn
+   without any external library.
+8. **Price your own options** (*Pricer* tab): with the active model and its current parameters, with PROJ (accurate even
+   for very short maturities and far strikes).
+   - *By hand*: type, K, F, maturity (days), r and, optionally, a market price → model price and IV, market IV and gap,
+     Δ, Γ, Vega, Θ of the model and of Black-76.
+   - *CSV file*: one row per option, required columns `type` (call/put, C/P), `K`, `F` and the maturity as `T` (years)
+     **or** `jours` (days) **or** `echeance` (YYYY-MM-DD, 08:00 UTC expiry, counted from `valorisation` if that column
+     exists, otherwise from the day's snapshot); optional `r`, `prix_marche` (market price); any other column is copied.
+     Separator `,` or `;` (decimal comma accepted with `;`). The file comes back (`<name>_price.csv`) with `iv_marche,
+     prix_modele, iv_modele, ecart_iv_bps, ecart_prix, delta/gamma/vega/theta` of the model and of Black-76, `vol_b76,
+     modele, pricer, erreur`; an invalid row keeps its data and receives its message in `erreur`. *Template CSV* button:
+     an example file to fill in. (Column names keep the original format so that existing files still work.)
+9. **Exotic options by Monte Carlo** (*Pricer* tab, computed only on click, can be stopped):
+   - *Parameters*: the current ones (sliders, optimisation result) or any saved setting or calibration of the day of the
+     active model;
+   - *Products*: Asian, barrier, digital, American (Longstaff-Schwartz), lookback, European; or **composite**: observed
+     value (final F, average, max, min) × payoff (call, put, digital) × up to two barriers (up/down, in/out) × exercise
+     (European, American); or a **free formula** (variables `FT, MOY, MAX, MIN, F0, K, B, B2, Q, T`, functions
+     `max, min, abs, exp, log, sqrt`, comparisons worth 1 or 0);
+   - *Simulation*: CIR factors by QE (Andersen 2008), Merton, bi-lognormal, Kou, Variance Gamma and NIG jumps (CGMY has
+     no simple exact simulation: not offered); discrete monitoring at each step;
+   - *American*: regression on 1, x, x², x³ and the Black-76 European value of the remaining option, which also serves as
+     a floor for the continuation (without it, the regression noise caused wrong exercises); checked: premium ≈ 0 for
+     r = 0, positive for r > 0;
+   - *Control*: the European with strike K is simulated on the same paths and compared with its Fourier price (gap in
+     standard errors; |gap| > 3 σ signals a discretisation bias); it also serves as a control variate. Checked on
+     Black-Scholes, Heston + Merton, double Heston + bi-lognormal, Heston with variance jumps + Kou, Heston + VG,
+     Heston + NIG (gaps from −1.1 to +1.9 σ).
+10. **GEX — gamma exposure** (*GEX* tab, computed when opened): per option, sign × open interest (BTC) × Γ × F² × 1 % =
+    the dollar delta to buy back or sell for a +1 % move of the future. Selected or all maturities; Black-76 gamma at the
+    mark IV or the model's; "market makers" convention (+ calls, − puts) or raw gamma. Tiles: total GEX, flip level (zero
+    gamma), call wall, put wall, calls/puts and open interest; charts: net GEX by strike and total GEX against the level of
+    the future (−20 % to +20 %). The open interest comes from the Deribit snapshots (column `oi` of the days; missing on
+    the two reconstructed days).
+11. **Optimiser** (Feller enforced or not, within the slider bounds, locked parameters fixed):
 
-   | Méthode | Nature | Quand la choisir |
+   | Method | Nature | When to choose it |
    |---|---|---|
-   | Nelder–Mead classique (défaut) | local, coefficients 1, 2, ½, ½ | affiner depuis un bon point de départ |
-   | Nelder–Mead adaptatif (Gao & Han 2012) | local, coefficients fonction de la dimension n | beaucoup de paramètres libres : descend en général plus bas, s'arrête plus tard |
-   | Évolution différentielle (Storn & Price 1997) | global, population en hypercube latin | pas de bon point de départ ; graine fixe → résultat reproductible |
-   | DE puis Nelder–Mead (classique ou adaptatif) | global puis local | la chaîne de calibration Python (Nelder–Mead à la place de SLSQP) ; l'étape locale peut changer de pricer |
+   | Classic Nelder–Mead (default) | local, coefficients 1, 2, ½, ½ | refining from a good starting point |
+   | Adaptive Nelder–Mead (Gao & Han 2012) | local, coefficients depending on the dimension n | many free parameters: usually goes lower, stops later |
+   | Differential evolution (Storn & Price 1997) | global, Latin-hypercube population | no good starting point; fixed seed → reproducible result |
+   | DE then Nelder–Mead (classic or adaptive) | global then local | the Python calibration chain (Nelder–Mead instead of SLSQP); the local step can change pricer |
 
-   Réglages : tolérance, évaluations max., pas initial (Nelder–Mead) ; stratégie best1bin/rand1bin, popsize,
-   générations, mutation, recombinaison, tol, atol, graine, injection du point actuel (DE), avec deux préréglages
-   « Défauts scipy » et « Réglages de production » (ceux de la chaîne de calibration Python d'origine). Ils sont enregistrés avec le réglage.
+   Settings: tolerance, max evaluations, initial step (Nelder–Mead); best1bin/rand1bin strategy, popsize, generations,
+   mutation, recombination, tol, atol, seed, injection of the current point (DE), with two presets "scipy defaults" and
+   "Production settings" (those of the original Python calibration chain). They are saved with the setting.
 
-## Sur téléphone
+## On a phone
 
-- En haut, une barre fixe : « ☰ » (à gauche) ouvre le volet des **onglets**, la RMSE au milieu, « ☰ Réglages » (à
-  droite) ouvre le volet des **réglages de l'onglet** (curseurs, point de départ, pricer…).
-- Au centre, les smiles, **une échéance par rang** ; en bas, toujours visible, **« Optimiser »** avec sa progression
-  et son état.
-- Un volet se referme par « ✕ Fermer », en choisissant un onglet, ou en touchant le voile sombre.
-- La page est légèrement dézoomée (85 %) ; sur ordinateur, elle l'est à 80 %.
+- At the top, a fixed bar: "☰" (left) opens the **tabs** panel, the RMSE in the middle, "☰ Settings" (right) opens the
+  **tab's settings** panel (sliders, starting point, pricer…).
+- In the centre, the smiles, **one maturity per row**; at the bottom, always visible, **"Optimise"** with its progress and
+  status.
+- A panel closes with "✕ Close", by choosing a tab, or by touching the dark veil.
+- The page is slightly zoomed out (85 %); on a computer, it is at 80 %.
 
-## Vitesse et fluidité
+## Speed and fluidity
 
-- **Réglages par défaut les plus rapides** : pricer COS (N = 512, L = 24) et modèle de Bates (Heston + sauts
-  lognormaux, 8 paramètres). PROJ et les autres modèles restent au choix ; un réglage choisi est retenu par le
-  navigateur.
-- **Pricer** : tout ce qui ne dépend pas de la fréquence (compensateurs des sauts, Γ(−Y) de CGMY, k_J) est calculé
-  une fois par échéance, la fonction caractéristique ne crée aucun tableau intermédiaire, COS ne calcule que la
-  partie réelle utile, et la FFT de PROJ lit ses facteurs de rotation dans une table. Prix inchangés (écart
-  maximal 6·10⁻¹¹ $ sur 17 192 prix, 28 compositions de modèle, COS et PROJ).
-- **Optimiseur** : calcul par tranches de 12 ms (la page garde ses 60 images par seconde) ; l'affichage est
-  rafraîchi environ toutes les 100 ms et reprend l'évaluation que l'optimiseur vient de faire au lieu de la
-  refaire ; les smiles sont dessinés avant les autres écritures de la page ; l'onglet Grecques n'est recalculé
-  qu'une fois par seconde pendant une optimisation (et à la fin).
-- **Pricer COS** : le module complexe se calcule sans `Math.hypot` (lent) et la série s'arrête là où son reste est
-  borné sous 10⁻¹⁰ $ : les longues échéances n'ont besoin que d'une fraction des N termes.
-- **Mesures** (Chrome, Bates, 6 échéances, 222 options, COS N = 512) :
+- **Fastest default settings**: COS pricer (N = 512, L = 24) and the Bates model (Heston + lognormal jumps, 8
+  parameters). PROJ and the other models remain available; a chosen setting is remembered by the browser.
+- **Pricer**: everything that does not depend on the frequency (jump compensators, Γ(−Y) of CGMY, k_J) is computed once
+  per maturity, the characteristic function creates no intermediate array, COS computes only the useful real part, and
+  the FFT of PROJ reads its twiddle factors from a table. Unchanged prices (maximum gap 6·10⁻¹¹ $ over 17,192 prices,
+  28 model compositions, COS and PROJ).
+- **Optimiser**: computed in 12 ms slices (the page keeps its 60 frames per second); the display is refreshed about
+  every 100 ms and reuses the evaluation the optimiser has just made instead of redoing it; the smiles are drawn before
+  the other writes of the page; the Greeks tab is recomputed only once per second during an optimisation (and at the end).
+- **COS pricer**: the complex modulus is computed without `Math.hypot` (slow) and the series stops where its remainder
+  is bounded below 10⁻¹⁰ $: long maturities need only a fraction of the N terms.
+- **Mathematics**: formulas are rendered by KaTeX at build time, not in the browser.
+- **Measurements** (Chrome, Bates, 6 maturities, 222 options, COS N = 512):
 
-  | Bloc | Temps |
+  | Block | Time |
   |---|---|
-  | une évaluation complète (prix, IV, perte, métriques) | ≈ 1,3 ms |
-  | dont la fonction caractéristique | ≈ 0,7 ms |
-  | dont l'inversion des volatilités implicites | ≈ 0,15 ms |
-  | Nelder–Mead | ≈ 650 évaluations par seconde |
-  | un rafraîchissement de l'écran (smiles, métriques, curseurs) | ≈ 3,5 ms |
+  | a full evaluation (prices, IVs, loss, metrics) | ≈ 1.3 ms |
+  | of which the characteristic function | ≈ 0.7 ms |
+  | of which the inversion of the implied volatilities | ≈ 0.15 ms |
+  | Nelder–Mead | ≈ 650 evaluations per second |
+  | a screen refresh (smiles, metrics, sliders) | ≈ 3.5 ms |
 
-  PROJ (N = 2048) coûte environ 3 fois plus ; un modèle à deux composantes de sauts (11 paramètres) demande aussi
-  plus d'itérations.
+  PROJ (N = 2048) costs about 3 times more; a model with two jump components (11 parameters) also needs more iterations.
 
-## Enregistrer et exporter
+## Saving and exporting
 
-- **Enregistrer ce réglage** : le réglage (modèle, paramètres, jour, échéances, filtres, pricer, perte, bornes,
-  résultats) va dans le navigateur **et sur le disque**. Au premier enregistrement, choisir le dossier
-  du site (le navigateur s'en souvient) :
+- **Save this setting**: the setting (model, parameters, day, maturities, filters, pricer, loss, bounds, results) goes to
+  the browser **and to disk**. On the first save, choose the site folder (the browser remembers it):
 
   ```
-  resultats/<jour>/<variance>-<sauts>/NN_<nom>/   reglage.json, params.json, results.csv, df_used.csv, smile_grid.csv, smiles.png
-  resultats/<jour>/final/                          le réglage marqué « final » du jour
-  resultats/jeux_enregistres.json                  tous tes réglages, au format commun des jeux
+  resultats/<day>/<variance>-<jumps>/NN_<name>/   reglage.json, params.json, results.csv, df_used.csv, smile_grid.csv, smiles.png
+  resultats/<day>/final/                           the setting marked "final" for the day
+  resultats/jeux_enregistres.json                  all your settings, in the common format of the sets
   ```
-- **Exporter des jeux de paramètres (JSON)** : tous les jeux d'un modèle, sur tous les jours, filtrés par origine
-  (calibrations historiques, mes réglages), nombre d'échéances (de … à …), perte, période, RMSE IV maximale, et « tous »
-  ou « le meilleur par jour ». Le compte des jeux retenus s'affiche avant l'export.
+- **Export parameter sets (JSON)**: every set of a model, over all days, filtered by origin (historical calibrations, my
+  settings), number of maturities (from … to …), loss, period, maximum IV RMSE, and "all" or "the best per day". The
+  number of sets kept is shown before the export.
 
-**Format commun des jeux** (« calibration-a-la-main/jeux », version 1), partagé avec les scripts de calibration :
+**Common format of the sets** ("calibration-a-la-main/jeux", version 1), shared with the calibration scripts:
 `id, jour, instantane, modele {variance, sauts}, parametres, calibration {origine, moteur, methode, source},
 donnees {echeances, filtres}, pricer, perte {mesure, ponderation}, resultats {rmse_iv_bps, rmse_prix_usd, n_options}`.
-Clés des modèles : variance `const`, `heston`, `heston2`, `hestonJ` ; sauts `aucun`, `logn`, `biln`, `kou`, `cgmy`,
-`vg`, `nig`.
+Model keys: variance `const`, `heston`, `heston2`, `hestonJ`; jumps `aucun`, `logn`, `biln`, `kou`, `cgmy`, `vg`, `nig`.
+(Keys are French and kept as they are: they identify data already saved.)
 
-## Contenu
+## Contents
 
 ```
-├── README.md, METHODOLOGIE_app_web_yassine.pdf, requirements.txt, .nojekyll
-├── .github/workflows/maj_quotidienne.yml   instantané Deribit chaque matin (GitHub Actions)
-└── (racine du site)
-    ├── index.html                la page (assemblée par sources/build.py)
-    ├── futures.js                286 échéances de futures (cotées et forwards implicites)
-    ├── jeux.js                   index de tous les jeux calibrés embarqués (pour l'export)
-    ├── jours/<date>.js           un fichier par jour : chaîne complète, carnet par défaut marqué, jeux calibrés du jour
-    │                             (T à l'heure près jusqu'à l'expiration de 08:00 UTC, r = log(F/X)/T)
+├── README.md, REPORT.pdf, requirements.txt, vercel.json, .vercelignore, .nojekyll
+├── .github/workflows/maj_quotidienne.yml   Deribit snapshot every morning (GitHub Actions)
+├── docs/                         GUIDE.md, DESIGN.md, screenshots, report/ (LaTeX source of REPORT.pdf and its data)
+└── (site root)
+    ├── index.html                the page (assembled by sources/build.py)
+    ├── katex/                    KaTeX stylesheet and fonts used by the formulas (MIT licence)
+    ├── futures.js                286 future maturities (listed and implied forwards)
+    ├── jeux.js                   index of every embedded calibrated set (for the export)
+    ├── jours/<date>.js           one file per day: full chain, default book flagged, calibrated sets of the day
+    │                             (T to the hour up to the 08:00 UTC expiry, r = log(F/X)/T)
     └── sources/
-        ├── template_full.html    la page (modèles, dynamiques, menus, enregistrement, export)
-        ├── pricer.js             fonctions caractéristiques, COS, PROJ, Black-76
-        ├── calibrations.json     les 529 jeux calibrés embarqués, au format commun
-        ├── jeux.py               format commun : rattachement aux jours, nom affiché
-        ├── ajouter_jours.py      ajoute des jours depuis des instantanés Deribit
-        ├── ajouter_calibrations.py  range des jeux calibrés dans les jours
-        ├── aujourdhui.py         instantané Deribit du moment -> ../jours/<date>.js, puis build
-        ├── build.py              assemble index.html et jeux.js
-        ├── telecharger_futures.py  historique des futures Deribit -> futures.js
-        ├── donnees_deribit/      préparation des instantanés
-        └── pricers_fourier/      Black-76 et volatilité implicite
+        ├── template_full.html    the page (models, dynamics, menus, saving, export)
+        ├── design.css            the theme
+        ├── pricer.js             characteristic functions, COS, PROJ, Black-76
+        ├── maths.py, katex_rendu.js, katex/, maths_cache.json   build-time LaTeX rendering
+        ├── calibrations.json     the 529 embedded calibrated sets, in the common format
+        ├── jeux.py               common format: attachment to the days, display name
+        ├── ajouter_jours.py      adds days from Deribit snapshots
+        ├── ajouter_calibrations.py  stores calibrated sets in the days
+        ├── aujourdhui.py         current Deribit snapshot -> ../jours/<date>.js, then build
+        ├── build.py              assembles index.html and jeux.js
+        ├── telecharger_futures.py  Deribit futures history -> futures.js
+        ├── donnees_deribit/      preparation of the snapshots
+        └── pricers_fourier/      Black-76 and implied volatility
 ```
 
-## Mettre à jour les données
+## Updating the data
 
-Python 3.10 ou plus récent, numpy, scipy, pandas, requests. Depuis `sources/` :
+Python 3.10 or more recent, numpy, scipy, pandas, requests. From `sources/`:
 
-| Je veux… | Commande |
+| I want to… | Command |
 |---|---|
-| ajouter les jours absents d'un dossier d'instantanés | `python ajouter_jours.py <dossier>` puis `python build.py` |
-| ajouter ou remplacer des jours précis | `python ajouter_jours.py <dossier> 2026-10-13 2026-10-14` |
-| ranger des jeux calibrés (JSON au format commun) | `python ajouter_calibrations.py jeux.json --ajouter` puis `python build.py` |
-| tout reconstruire depuis calibrations.json | `python ajouter_calibrations.py` puis `python build.py` |
-| mettre à jour les futures | `python telecharger_futures.py` puis `python build.py` |
-| ajouter l'instantané du moment dans jours/ | `python aujourdhui.py` (reconstruit la page) |
-| ouvrir la page sur un autre jour | `python build.py --jour 2026-08-26` |
+| add the days missing from a snapshot folder | `python ajouter_jours.py <folder>` then `python build.py` |
+| add or replace specific days | `python ajouter_jours.py <folder> 2026-10-13 2026-10-14` |
+| store calibrated sets (JSON in the common format) | `python ajouter_calibrations.py jeux.json --ajouter` then `python build.py` |
+| rebuild everything from calibrations.json | `python ajouter_calibrations.py` then `python build.py` |
+| update the futures | `python telecharger_futures.py` then `python build.py` |
+| add the current snapshot to jours/ | `python aujourdhui.py` (rebuilds the page) |
+| open the page on another day | `python build.py --jour 2026-08-26` |
+| rebuild the report | in `docs/report/`: `pdflatex report.tex` twice, then move `report.pdf` to `../../REPORT.pdf` |
 
-Un nouveau modèle s'ajoute dans `sources/pricer.js` (exposant de la fonction caractéristique), puis dans le gabarit
-(`VARIANCES` ou `SAUTS`, et sa fiche dans `DYNAMIQUES`) ; `python build.py` reconstruit la page.
+A new model is added in `sources/pricer.js` (exponent of the characteristic function), then in the template
+(`VARIANCES` or `SAUTS`, and its entry in `DYNAMIQUES`, with its dynamics in LaTeX through `tex("…")`); `python build.py`
+rebuilds the page. A new formula needs Node.js once (it is rendered by KaTeX and cached in `sources/maths_cache.json`);
+afterwards, and in the daily GitHub Action, Python alone is enough.
 
 ## Scripts
 
-<!-- debut:scripts -->
 ### `ajouter_jours.py`
 
-Ajoute des jours a la page : ../jours/<date>.js depuis des instantanes Deribit, puis python build.py.
+Adds days to the page: ../jours/<date>.js from Deribit snapshots, then python build.py.
 
-*Argument positionnel*
-
-| Argument | Valeurs | Défaut | Rôle |
+| Argument | Values | Default | Role |
 |---|---|---|---|
-| `dossier` | texte | — | dossier des instantanes btc_options_snapshot_*.csv |
-| `dates` | texte … | — | AAAA-MM-JJ (defaut : les jours absents de la page) |
-
-*Arguments*
-
-| Argument | Valeurs | Défaut | Rôle |
-|---|---|---|---|
-| `--jeux` | texte | — | fichier de jeux calibres (defaut : calibrations.json) |
+| `dossier` | text | — | folder of the btc_options_snapshot_*.csv snapshots |
+| `dates` | text … | — | YYYY-MM-DD (default: the days missing from the page) |
+| `--jeux` | text | — | calibrations.json or historique.csv of the daily chain (default: calibrations.json) |
 
 ### `ajouter_calibrations.py`
 
-Range des jeux de parametres calibres dans les jours de la page (../jours/<jour>.js), puis python build.py.
+Stores calibrated parameter sets in the days of the page (../jours/<day>.js), then python build.py.
 
-*Argument positionnel*
-
-| Argument | Valeurs | Défaut | Rôle |
+| Argument | Values | Default | Role |
 |---|---|---|---|
-| `fichier` | texte | `calibrations.json` | fichier de jeux calibrés (calibrations.json par défaut) |
-
-*Arguments*
-
-| Argument | Valeurs | Défaut | Rôle |
-|---|---|---|---|
-| `--jours` | texte … | — | AAAA-MM-JJ ou AAAA-MM-JJ_HHMMSS (defaut : tous les jours de la page) |
-| `--ajouter` | drapeau | — | garder les calibrations deja presentes dans les jours |
+| `fichier` | text | `calibrations.json` | file of calibrated sets |
+| `--jours` | text … | — | YYYY-MM-DD or YYYY-MM-DD_HHMMSS (default: every day of the page) |
+| `--ajouter` | flag | — | keep the calibrations already present in the days |
 
 ### `aujourdhui.py`
 
-Telecharge l'instantane Deribit du moment et l'ecrit directement dans ../jours/<date>.js, puis reconstruit la page.
+Downloads the current Deribit snapshot, writes it directly to ../jours/<date>.js, then rebuilds the page.
 
-*Arguments*
-
-| Argument | Valeurs | Défaut | Rôle |
+| Argument | Values | Default | Role |
 |---|---|---|---|
-| `--devise` | texte | `BTC` | devise des options Deribit |
-| `--instantanes` | texte | `../instantanes` | dossier ou garder le CSV brut de l'instantane |
-| `--jeux` | texte | — | fichier de jeux calibres pour les points de depart du jour (defaut : calibrations.json) |
-| `--sans-build` | drapeau | — | ne pas reconstruire index.html (python build.py le fera) |
+| `--devise` | text | `BTC` | currency of the Deribit options |
+| `--instantanes` | text | `../instantanes` | folder where the raw CSV of the snapshot is kept |
+| `--jeux` | text | — | calibrations.json or historique.csv for the starting points of the day |
+| `--sans-build` | flag | — | do not rebuild index.html (python build.py will) |
 
 ### `build.py`
 
-Construit ../index.html : la page, le pricer et un jour integres.
+Builds ../index.html: the page, the pricer and one day embedded; renders the LaTeX formulas.
 
-*Arguments*
-
-| Argument | Valeurs | Défaut | Rôle |
+| Argument | Values | Default | Role |
 |---|---|---|---|
-| `--jour` | texte | — | jour integre a index.html, AAAA-MM-JJ ou AAAA-MM-JJ_HHMMSS (defaut : le plus recent) |
+| `--jour` | text | — | day embedded in index.html, YYYY-MM-DD or YYYY-MM-DD_HHMMSS (default: the most recent) |
 
 ### `telecharger_futures.py`
 
-Historique quotidien complet de chaque future Deribit -> futures.js.
+Full daily history of every Deribit future -> futures.js.
 
-*Arguments*
-
-| Argument | Valeurs | Défaut | Rôle |
+| Argument | Values | Default | Role |
 |---|---|---|---|
-| `--cache` | texte | `cache_futures` | dossier du cache des reponses brutes (defaut : sources/cache_futures) |
-| `--tout-retelecharger` | drapeau | — | retelecharge aussi les echeances expirees deja en cache |
-| `--pause` | réel | `0.12` | secondes entre deux requetes (defaut : 0.12) |
-<!-- fin:scripts -->
+| `--cache` | text | `cache_futures` | cache folder of the raw answers |
+| `--tout-retelecharger` | flag | — | also downloads again the expired maturities already cached |
+| `--pause` | real | `0.12` | seconds between two requests |
 
-## Publier (GitHub Pages)
+## Publishing (GitHub Pages)
 
-1. Créer sur GitHub un dépôt **public** (par exemple `app-web-yassine`).
-2. Depuis ce dossier (ou avec GitHub Desktop : *Add local repository → create a repository → Publish repository*, en décochant *Keep this code private*) :
+1. Create a **public** repository on GitHub.
+2. From this folder (or with GitHub Desktop: *Add local repository → create a repository → Publish repository*, unticking
+   *Keep this code private*):
 
    ```
    git init
    git add .
-   git commit -m "Calibration d'options Bitcoin"
+   git commit -m "Bitcoin option calibration"
    git branch -M main
    git remote add origin https://github.com/yassinebarnicha/calibration-btc-svjd.git
    git push -u origin main
    ```
-3. Sur GitHub : **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)`**.
-   Le site est en ligne quelques minutes plus tard à `https://yassinebarnicha.github.io/calibration-btc-svjd/`, servi par
-   un réseau mondial (rapide depuis tous les continents). Rien à payer, aucun serveur à gérer : la page et ses
-   données sont des fichiers statiques, tout le calcul se fait dans le navigateur du visiteur.
+3. On GitHub: **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)`**. The site is online
+   a few minutes later at `https://yassinebarnicha.github.io/calibration-btc-svjd/`, served by a global network. Nothing
+   to pay, no server to manage: the page and its data are static files, all the computing happens in the visitor's
+   browser.
 
-Le fichier `.nojekyll` demande à GitHub de servir les fichiers tels quels.
+The `.nojekyll` file asks GitHub to serve the files as they are. The site can also be deployed on Vercel:
+`vercel.json` declares it as a static site with no build step, and `.vercelignore` keeps the Python scripts out of the
+deployment.
 
-## Mise à jour automatique des données
+## Automatic data updates
 
-`.github/workflows/maj_quotidienne.yml` lance chaque jour à 08:20 UTC (juste après l'expiration Deribit) :
-`pip install -r requirements.txt`, puis `python sources/aujourdhui.py` (instantané de la chaîne Deribit → nouveau
-`jours/<date>.js`, `index.html` et `jeux.js` reconstruits), puis un commit ; GitHub Pages republie la page
-automatiquement. On peut aussi la lancer à la main : onglet **Actions → Mise à jour quotidienne → Run workflow**.
-Le CSV brut de l'instantané n'est pas versionné (`.gitignore`) : le dépôt grossit d'environ 120 Ko par jour.
-Si Deribit refusait un jour les requêtes des machines de GitHub, la tâche échouerait (visible dans l'onglet
-Actions) sans rien casser : le site garde les jours déjà publiés.
-
+`.github/workflows/maj_quotidienne.yml` runs every day at 08:20 UTC (just after the Deribit expiry):
+`pip install -r requirements.txt`, then `python sources/aujourdhui.py` (snapshot of the Deribit chain → new
+`jours/<date>.js`, `index.html` and `jeux.js` rebuilt), then a commit; GitHub Pages republishes the page automatically.
+It can also be run by hand: **Actions → Daily update → Run workflow**. The raw CSV of the snapshot is not versioned
+(`.gitignore`): the repository grows by about 120 KB per day. If Deribit ever refused requests from GitHub's machines, the
+job would fail (visible in the Actions tab) without breaking anything: the site keeps the days already published.

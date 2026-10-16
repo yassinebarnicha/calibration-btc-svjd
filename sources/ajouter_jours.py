@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Ajoute des jours a la page : ../jours/<date>.js depuis des instantanes Deribit, puis python build.py.
+"""Adds days to the page: ../jours/<date>.js from Deribit snapshots, then python build.py.
 
-Un jour = la chaine complete nettoyee (donnees_deribit.preparer_base), les IV bid/ask (pricers_fourier),
-les lignes du carnet de production marquees (donnees_deribit.preparer_carnet, regles de production) et
-les points de depart : les jeux de parametres calibres de ce jour (format de jeux.py) et le point generique.
+A day = the full cleaned chain (donnees_deribit.preparer_base), the bid/ask IVs (pricers_fourier), the rows of the
+production book flagged (donnees_deribit.preparer_carnet, production rules) and the starting points: the parameter
+sets calibrated on that day (format of jeux.py) and the generic start.
 
-Usage :
-    python ajouter_jours.py <dossier d'instantanes>                       # jours absents de la page
-    python ajouter_jours.py <dossier d'instantanes> 2026-10-07 2026-10-08 # jours choisis (remplaces s'ils existent)
-    python ajouter_jours.py <dossier> --jeux historique.csv               # autre source de jeux (defaut : calibrations.json)
+Usage:
+    python ajouter_jours.py <snapshot folder>                        # days missing from the page
+    python ajouter_jours.py <snapshot folder> 2026-10-07 2026-10-08  # chosen days (replaced if they exist)
+    python ajouter_jours.py <folder> --jeux historique.csv           # another source of sets (default: calibrations.json)
 """
 import argparse
 import json
@@ -76,13 +76,13 @@ def main(dossier, dates, source_jeux=None):
         par_jour[horodatage(f)[:10]] = f            # dernier instantane de chaque jour
     for jour, f in sorted(par_jour.items()):
         if (dates and jour in dates) or (not dates and jour not in presents):
-            print("  {} : {} options, {} jeu(x) de paramètres".format(*exporter(f, jeux)))
+            print("  {}: {} options, {} parameter set(s)".format(*exporter(f, jeux)))
 
 
 if __name__ == "__main__":
     a = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    a.add_argument("dossier", help="dossier des instantanes btc_options_snapshot_*.csv")
-    a.add_argument("dates", nargs="*", help="AAAA-MM-JJ (defaut : les jours absents de la page)")
-    a.add_argument("--jeux", help="calibrations.json ou historique.csv de la chaine quotidienne (defaut : calibrations.json)")
+    a.add_argument("dossier", help="folder of the btc_options_snapshot_*.csv snapshots")
+    a.add_argument("dates", nargs="*", help="YYYY-MM-DD (default: the days missing from the page)")
+    a.add_argument("--jeux", help="calibrations.json or historique.csv of the daily chain (default: calibrations.json)")
     a = a.parse_args()
     main(a.dossier, set(a.dates), a.jeux)

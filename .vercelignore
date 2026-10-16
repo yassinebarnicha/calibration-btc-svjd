@@ -1,0 +1,6 @@
+# The site is static: Vercel serves only index.html, the .js data files, jours/, katex/ and the documents.
+# The Python scripts are only used for the daily update (GitHub Actions): they are not sent to Vercel,
+# otherwise it would take the repository for a Python application to run.
+requirements.txt
+sources/
+.github/

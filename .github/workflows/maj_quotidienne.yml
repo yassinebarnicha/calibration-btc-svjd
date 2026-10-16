@@ -1,7 +1,7 @@
-name: Mise à jour quotidienne
+name: Daily update
 
-# Chaque matin, juste apres l'expiration Deribit (08:00 UTC) : instantane de la chaine
-# d'options -> jours/<date>.js, page reconstruite, commit. GitHub Pages republie seul.
+# Every morning, just after the Deribit expiry (08:00 UTC): snapshot of the option chain
+# -> jours/<date>.js, page rebuilt, commit. GitHub Pages republishes on its own.
 on:
   schedule:
     - cron: "20 8 * * *"
@@ -24,19 +24,19 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Dépendances
+      - name: Dependencies
         run: pip install -r requirements.txt
-      - name: Instantané Deribit et reconstruction de la page
+      - name: Deribit snapshot and page rebuild
         working-directory: sources
         run: python aujourdhui.py
-      - name: Commit des nouvelles données
+      - name: Commit the new data
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
           git add jours index.html jeux.js
           if git diff --cached --quiet; then
-            echo "rien de nouveau"
+            echo "nothing new"
           else
-            git commit -m "Instantané Deribit du $(date -u +%F)"
+            git commit -m "Deribit snapshot of $(date -u +%F)"
             git push
           fi

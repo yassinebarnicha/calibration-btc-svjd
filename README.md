@@ -1,111 +1,107 @@
-# Calibration d'options Bitcoin dans le navigateur
+# Bitcoin option calibration in the browser
 
-**Pricer, calibrer et analyser les options BTC de Deribit avec onze modèles à sauts et volatilité stochastique,
-entièrement dans le navigateur : aucun serveur de calcul, aucune installation.**
+**Price, calibrate and analyse Deribit BTC options with 28 jump and stochastic-volatility models, entirely in the
+browser: no computing server, nothing to install.**
 
-▶ **Démo en ligne : https://yassinebarnicha.github.io/calibration-btc-svjd/**
+▶ **Live demo: https://yassinebarnicha.github.io/calibration-btc-svjd/** · 📄 **[Report (PDF)](REPORT.pdf)**
 
-![Calibration du modèle de Bates sur les smiles Deribit du 26/08/2026](docs/apercu_calibration.png)
+![The Bates model calibrated to the Deribit smiles of 2026-08-26](docs/apercu_calibration.png)
 
-## Ce que fait l'application
+## What the application does
 
-- **Calibration interactive** : chaque curseur repricé en direct sur toute la chaîne d'options du jour ; cinq
-  optimiseurs (Nelder–Mead classique et adaptatif, évolution différentielle, DE puis Nelder–Mead), contrainte de
-  Feller, paramètres verrouillables, bornes, plusieurs jours calibrés ensemble.
-- **Modèles composables** : un bloc de variance × une loi de sauts, chacun avec sa dynamique affichée en clair.
-- **Grecques** : Δ, Γ, Vega, Θ du modèle (différences finies sur son propre pricer) contre Black-76, par strike.
-- **Surface de volatilité 3D** : surface du modèle et points de marché, calibrés seulement ou tous, avec
-  l'extrapolation du modèle là où il n'a rien vu.
-- **Pricer à la demande** : une option saisie à la main, ou un fichier CSV entier rendu avec prix, IV et grecques
-  (format ci-dessous).
-- **Exotiques par Monte-Carlo** : asiatiques, barrières, digitales, lookbacks, américaines (Longstaff-Schwartz),
-  payoffs composés ou formule libre, avec contrôle automatique contre le prix exact de Fourier.
-- **GEX (gamma exposure)** : exposition gamma des teneurs de marché par strike, niveau de bascule, call / put walls.
-- **Données** : 270+ jours de chaînes d'options Deribit depuis janvier 2024 (open interest compris), l'historique
-  des futures, 529 jeux de paramètres calibrés, et un jour de plus chaque matin.
-- **Ordinateur et téléphone** : navigation verticale numérotée sur grand écran ; sur téléphone, les smiles en
-  plein écran, deux volets glissants et le bouton d'optimisation toujours à portée de pouce.
+- **Interactive calibration**: every slider reprices the whole option chain of the day live; five optimisers (classic
+  and adaptive Nelder–Mead, differential evolution, DE then Nelder–Mead), Feller constraint, lockable parameters,
+  bounds, several days calibrated together.
+- **Composable models**: a variance block × a jump law, each with its dynamics written out in LaTeX.
+- **Greeks**: the model's Δ, Γ, Vega, Θ (finite differences on its own pricer) against Black-76, by strike.
+- **3-D volatility surface**: the model surface and the market points, calibrated only or all of them, with the model's
+  extrapolation where it has seen nothing.
+- **Pricer on demand**: one option typed in, or a whole CSV file returned with prices, IVs and Greeks (format below).
+- **Exotics by Monte Carlo**: Asian, barrier, digital, lookback, American (Longstaff-Schwartz), composite payoffs or a
+  free formula, with an automatic check against the exact Fourier price.
+- **GEX (gamma exposure)**: market makers' gamma exposure by strike, flip level, call / put walls.
+- **Data**: 270+ days of Deribit option chains since January 2024 (open interest included), the futures history,
+  529 calibrated parameter sets, and one more day every morning.
+- **Computer and phone**: numbered vertical navigation on a large screen; on a phone, full-width smiles, two sliding
+  panels and the optimisation button always within thumb's reach.
 
-## Modèles
+## Models
 
-| Variance \ sauts | aucun | Merton | bi-log-normal | Kou | CGMY | Variance Gamma | NIG |
+| Variance \ jumps | none | Merton | bi-lognormal | Kou | CGMY | Variance Gamma | NIG |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | Black-Scholes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Heston | ✓ | ✓ (Bates) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Double Heston | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Heston + sauts de variance | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Heston + variance jumps | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-Les 28 compositions sont pricées par leur fonction caractéristique, avec **COS** (Fang–Oosterlee 2008) ou
-**PROJ** (Kirkby 2015), écrits en JavaScript.
+The 28 compositions are priced through their characteristic function with **COS** (Fang–Oosterlee 2008) or **PROJ**
+(Kirkby 2015), written in JavaScript. The [report](REPORT.pdf) derives the characteristic functions, the two Fourier
+methods, the loss functions and the optimisers, and shows the results on real data.
 
-## Comment ça marche
+## How it works
 
-- **Un site 100 % statique** : `index.html` (la page, ses pricers et un jour intégrés), un fichier par jour dans
-  `jours/`, chargé à la demande. Tout le calcul tourne dans le navigateur du visiteur, qui garde ses réglages chez
-  lui (navigateur, ou dossier de son disque avec Chrome et Edge) : aucune base de données, aucun compte.
-- **Des données qui se mettent à jour seules** : une GitHub Action télécharge chaque matin la chaîne d'options
-  Deribit (API publique, sans clé), l'ajoute et republie la page. Le bouton *↻ Aujourd'hui* fait la même chose
-  depuis le navigateur, à tout moment.
-- **Rapide et fluide** (mesuré dans Chrome, modèle de Bates, 6 échéances, 222 options, COS) : une évaluation
-  complète ≈ 1,3 ms, soit environ **650 évaluations par seconde** pendant une optimisation ; un rafraîchissement de
-  l'écran ≈ 3,5 ms. L'optimisation tourne par tranches de 12 ms : l'écran garde ses 60 images par seconde.
-- **Un design sobre** inspiré des principes du système Carbon (IBM, Apache-2.0) : fond neutre, angles droits,
-  chiffres en chasse fixe, aucune bibliothèque externe — la page reste un seul fichier autonome
-  ([docs/DESIGN.md](docs/DESIGN.md)).
+- **A fully static site**: `index.html` (the page, its pricers and one day embedded), one file per day in `jours/`,
+  loaded on demand. All the computing runs in the visitor's browser, which keeps its settings (browser, or a folder of
+  the disk with Chrome and Edge): no database, no account.
+- **Data that update themselves**: a GitHub Action downloads the Deribit option chain every morning (public API, no
+  key), adds it and republishes the page. The *↻ Today* button does the same from the browser, at any time.
+- **Fast and fluid** (measured in Chrome, Bates model, 6 maturities, 222 options, COS): a full evaluation ≈ 1.3 ms,
+  about **650 evaluations per second** during an optimisation; a screen refresh ≈ 3.5 ms. The optimisation runs in
+  12 ms slices: the screen keeps its 60 frames per second.
+- **Mathematics typeset in LaTeX**: formulas are rendered once at build time with KaTeX (vendored in `katex/`), so the
+  page runs no math script; system fonts only, no external library.
+- **A dark "midnight glass" design**, the same as the portfolio ([docs/DESIGN.md](docs/DESIGN.md)).
 
 ## Validation
 
-- Parité call–put et martingalité : C(K = F) − P(K = F) = 0,0000 bp sur les 28 compositions ; Black-Scholes retrouvé
-  à moins de 0,005 bp ; pricer JavaScript égal au pricer Python de référence à 6·10⁻⁶ $ près.
-- Grecques par différences finies égales aux formules fermées de Black-76 (modèle Black-Scholes) aux décimales
-  affichées.
-- Monte-Carlo : l'européenne simulée tombe à moins de 2 erreurs standard du prix de Fourier sur six familles de
-  modèles ; prime d'exercice anticipé nulle pour r = 0, positive pour r > 0.
-- Temps à l'échéance compté à l'heure près jusqu'à l'expiration de 08:00 UTC, ce qui compte pour les échéances de
-  quelques jours.
-- Optimisations du pricer contrôlées contre la version précédente sur les 28 compositions, COS et PROJ : prix
-  identiques au bruit d'arrondi près (4,5·10⁻⁸ en relatif) ; la série COS est coupée là où son reste est borné
-  sous 10⁻¹⁰ $.
+- Put–call parity and martingale property: C(K = F) − P(K = F) = 0.0000 bp on the 28 compositions; Black-Scholes
+  recovered to within 0.005 bp; JavaScript pricer equal to the Python reference pricer to within 6·10⁻⁶ $.
+- Greeks by finite differences equal to the Black-76 closed forms (Black-Scholes model) to the decimals shown.
+- Monte Carlo: the simulated European falls within 2 standard errors of the Fourier price on six model families;
+  zero early-exercise premium for r = 0, positive for r > 0.
+- Time to expiry counted to the hour up to the 08:00 UTC expiry, which matters for maturities of a few days.
+- Pricer optimisations checked against the previous version on the 28 compositions, COS and PROJ: identical prices up
+  to rounding noise (4.5·10⁻⁸ relative); the COS series is cut where its remainder is bounded below 10⁻¹⁰ $.
 
-## Aperçus
+## Previews
 
-| Surface de volatilité 3D | GEX |
+| 3-D volatility surface | GEX |
 |---|---|
-| ![Surface de volatilité implicite en 3D, modèle et marché](docs/apercu_surface.png) | ![Gamma exposure par strike et profil](docs/apercu_gex.png) |
+| ![3-D implied volatility surface, model and market](docs/apercu_surface.png) | ![Gamma exposure by strike and profile](docs/apercu_gex.png) |
 
-![Grecques du modèle contre Black-76, par strike](docs/apercu_grecques.png)
+![Model Greeks against Black-76, by strike](docs/apercu_grecques.png)
 
-**Sur téléphone** — à gauche la page (une échéance par rang, « Optimiser » fixé en bas), au milieu le volet des
-onglets, à droite le volet des réglages de l'onglet :
+**On a phone** — left the page (one maturity per row, "Optimise" pinned at the bottom), middle the tab panel, right the
+settings panel of the tab:
 
-![Version mobile : page, volet des onglets, volet des réglages](docs/apercu_mobile.png)
+![Phone version: page, tab panel, settings panel](docs/apercu_mobile.png)
 
-## Toutes les vues
+## Every view
 
-Chaque onglet, sur le jour du 26/08/2026 (modèle de Bates calibré). Cliquer sur une image pour l'agrandir.
+Each tab, on 2026-08-26 (calibrated Bates model). Click an image to enlarge it.
 
 | | |
 |---|---|
-| **Futures — trajectoire de chaque future depuis son émission**<br>[![Futures — trajectoire de chaque future depuis son émission](docs/captures/01_futures.png)](docs/captures/01_futures.png) | **Échéances — choix des échéances calibrées**<br>[![Échéances — choix des échéances calibrées](docs/captures/02_echeances.png)](docs/captures/02_echeances.png) |
-| **Cible et filtres — prix visé, spreads, moneyness**<br>[![Cible et filtres — prix visé, spreads, moneyness](docs/captures/03_cible_filtres.png)](docs/captures/03_cible_filtres.png) | **Pricer — COS / PROJ, options à la main, CSV, Monte-Carlo**<br>[![Pricer — COS / PROJ, options à la main, CSV, Monte-Carlo](docs/captures/04_pricer.png)](docs/captures/04_pricer.png) |
-| **Modèle — variance × sauts, dynamique affichée**<br>[![Modèle — variance × sauts, dynamique affichée](docs/captures/05_modele.png)](docs/captures/05_modele.png) | **Paramètres et optimiseur — curseurs, cinq optimiseurs**<br>[![Paramètres et optimiseur — curseurs, cinq optimiseurs](docs/captures/06_parametres_optimiseur.png)](docs/captures/06_parametres_optimiseur.png) |
-| **Perte — mesure et pondération de l'erreur**<br>[![Perte — mesure et pondération de l'erreur](docs/captures/07_perte.png)](docs/captures/07_perte.png) | **Grecques — modèle contre Black-76, par strike**<br>[![Grecques — modèle contre Black-76, par strike](docs/captures/08_grecques.png)](docs/captures/08_grecques.png) |
-| **Surface de vol — 3D, modèle et marché**<br>[![Surface de vol — 3D, modèle et marché](docs/captures/09_surface_de_vol.png)](docs/captures/09_surface_de_vol.png) | **GEX — gamma exposure, niveau de bascule**<br>[![GEX — gamma exposure, niveau de bascule](docs/captures/10_gex.png)](docs/captures/10_gex.png) |
-| **Réglages — enregistrement et export des jeux**<br>[![Réglages — enregistrement et export des jeux](docs/captures/11_reglages.png)](docs/captures/11_reglages.png) | **Sur téléphone** — page, volet des onglets, volet des réglages<br>[![Version mobile](docs/apercu_mobile.png)](docs/apercu_mobile.png) |
+| **Futures — path of each future since its listing**<br>[![Futures](docs/captures/01_futures.png)](docs/captures/01_futures.png) | **Maturities — choice of the calibrated maturities**<br>[![Maturities](docs/captures/02_maturities.png)](docs/captures/02_maturities.png) |
+| **Target and filters — target price, spreads, moneyness**<br>[![Target and filters](docs/captures/03_target_filters.png)](docs/captures/03_target_filters.png) | **Pricer — COS / PROJ, options typed in, CSV, Monte Carlo**<br>[![Pricer](docs/captures/04_pricer.png)](docs/captures/04_pricer.png) |
+| **Model — variance × jumps, dynamics in LaTeX**<br>[![Model](docs/captures/05_model.png)](docs/captures/05_model.png) | **Parameters and optimiser — sliders, five optimisers**<br>[![Parameters and optimiser](docs/captures/06_parameters_optimiser.png)](docs/captures/06_parameters_optimiser.png) |
+| **Loss — measure and weighting of the error**<br>[![Loss](docs/captures/07_loss.png)](docs/captures/07_loss.png) | **Greeks — model against Black-76, by strike**<br>[![Greeks](docs/captures/08_greeks.png)](docs/captures/08_greeks.png) |
+| **Vol surface — 3-D, model and market**<br>[![Vol surface](docs/captures/09_vol_surface.png)](docs/captures/09_vol_surface.png) | **GEX — gamma exposure, flip level**<br>[![GEX](docs/captures/10_gex.png)](docs/captures/10_gex.png) |
+| **Settings — saving and exporting parameter sets**<br>[![Settings](docs/captures/11_settings.png)](docs/captures/11_settings.png) | **On a phone** — page, tab panel, settings panel<br>[![Phone version](docs/apercu_mobile.png)](docs/apercu_mobile.png) |
 
-## Démarrer
+## Getting started
 
-- **En ligne** : ouvrir la démo, sur ordinateur ou sur téléphone. Un onglet s'ouvre directement par l'adresse, par
-  exemple `…/#GEX` ou `…/#Surface%20de%20vol`.
-- **En local** : télécharger le dépôt et double-cliquer sur `index.html` (garder `jours/`, `futures.js` et
-  `jeux.js` à côté).
-- **Sur téléphone** : « ☰ » en haut à gauche choisit l'onglet, « ☰ Réglages » en haut à droite ouvre ses réglages,
-  « Optimiser » reste en bas de l'écran ; toucher le voile sombre referme un volet.
+- **Online**: open the demo, on a computer or a phone. A tab opens directly from the address, for example `…/#GEX` or
+  `…/#Vol%20surface`.
+- **Locally**: download the repository and double-click `index.html` (keep `jours/`, `katex/`, `futures.js` and
+  `jeux.js` next to it).
+- **On a phone**: "☰" at the top left chooses the tab, "☰ Settings" at the top right opens its settings, "Optimise"
+  stays at the bottom of the screen; touching the dark veil closes a panel.
 
-## Format CSV du pricer
+## CSV format of the pricer
 
-Onglet *Pricer* → *Pricer tes propres options* → *Pricer un CSV…* : le fichier revient (`<nom>_price.csv`) avec,
-en plus de ses colonnes, prix et IV du modèle, IV de marché, écarts, Δ, Γ, Vega, Θ du modèle et de Black-76.
+*Pricer* tab → *Price your own options* → *Price a CSV…*: the file comes back (`<name>_price.csv`) with, in addition to
+its columns, the model price and IV, the market IV, the gaps, and the Δ, Γ, Vega, Θ of the model and of Black-76.
 
 ```csv
 id,type,K,F,jours,r,prix_marche
@@ -114,22 +110,21 @@ call-95k,call,95000,83757,30,0.06,980
 atm-90j,call,84000,83757,90,0.06,
 ```
 
-Obligatoires : `type` (call/put, C/P), `K`, `F` et l'échéance par `T` (années) **ou** `jours` **ou** `echeance`
-(AAAA-MM-JJ, expiration 08:00 UTC). Facultatives : `r`, `prix_marche` ; toute autre colonne est recopiée.
-Séparateur `,` ou `;` (virgule décimale acceptée avec `;`, comme dans Excel en français). Détail dans le
-[guide](docs/GUIDE.md).
+Required: `type` (call/put, C/P), `K`, `F` and the maturity as `T` (years) **or** `jours` (days) **or** `echeance`
+(YYYY-MM-DD, 08:00 UTC expiry). Optional: `r`, `prix_marche` (market price); any other column is copied. Separator `,`
+or `;` (decimal comma accepted with `;`, as in a French Excel). Column names are kept from the original format so that
+existing files keep working. Details in the [guide](docs/GUIDE.md).
 
-## Pour aller plus loin
+## Going further
 
-- [docs/GUIDE.md](docs/GUIDE.md) : mode d'emploi complet (chaque onglet, format CSV, scripts, mise à jour des
-  données, publication).
-- [docs/DESIGN.md](docs/DESIGN.md) : règles du design (couleurs, grille, ordinateur et téléphone).
-- [METHODOLOGIE_app_web_yassine.pdf](METHODOLOGIE_app_web_yassine.pdf) : théorie et algorithmes (composition des
-  modèles, pricers de Fourier, perte, optimiseurs, validation).
-- Développement : la page se construit depuis `sources/` (`template_full.html`, `design.css`, `pricer.js`) avec
-  `python sources/build.py` ; un nouveau modèle s'ajoute par son exposant dans `pricer.js` et sa fiche dans le
-  gabarit.
+- [REPORT.pdf](REPORT.pdf): the theory and the algorithms (model composition, characteristic functions, Fourier
+  pricers, loss, optimisers, Greeks, GEX, Monte Carlo, validation, results); LaTeX source in `docs/report/`.
+- [docs/GUIDE.md](docs/GUIDE.md): full user guide (each tab, CSV format, scripts, data updates, publishing).
+- [docs/DESIGN.md](docs/DESIGN.md): design rules (colours, layout, computer and phone).
+- Development: the page is built from `sources/` (`template_full.html`, `design.css`, `pricer.js`) with
+  `python sources/build.py`; a new model is added through its exponent in `pricer.js` and its entry in the template.
 
-## Auteur et licence
+## Author and licence
 
-Mohammed-Yassine Barnicha — code sous licence [MIT](LICENSE). Données de marché : API publique de Deribit.
+Mohammed-Yassine Barnicha — code under the [MIT](LICENSE) licence; KaTeX (`katex/`, `sources/katex/`) under its own MIT
+licence. Market data: public Deribit API.

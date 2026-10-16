@@ -1,0 +1,428 @@
+% Report: calibration of jump and stochastic-volatility models to Bitcoin options, in the browser.
+% Build: in docs/report, pdflatex report.tex (twice), then move report.pdf to ../../REPORT.pdf.
+% The figures read data/*.dat, extracted from the application itself (day 2026-08-26) and from jeux.js.
+\documentclass[11pt,a4paper]{article}
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm,mathtools,bm}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
+\usepgfplotslibrary{dateplot,groupplots}
+\usepackage{caption}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{cleveref}
+\hypersetup{pdftitle={Calibrating jump and stochastic-volatility models to Bitcoin options},pdfauthor={Mohammed-Yassine Barnicha}}
+
+\newtheorem{proposition}{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Q}{\mathbb{Q}}
+\newcommand{\N}{\mathcal{N}}
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\ii}{\mathrm{i}}
+\pgfplotsset{every axis/.append style={grid=major,grid style={gray!25},scaled ticks=false,
+  tick label style={font=\footnotesize},label style={font=\footnotesize},title style={font=\footnotesize},
+  legend style={font=\scriptsize,draw=none,fill=white,fill opacity=0.8,text opacity=1}}}
+
+\title{Calibrating Jump and Stochastic-Volatility Models\\to Bitcoin Options, in the Browser\\[4pt]
+  \large Model composition, Fourier pricing, loss design, optimisation and validation}
+\author{Mohammed-Yassine Barnicha}
+\date{October 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent This report documents an application that prices, calibrates and analyses Deribit Bitcoin options with 28
+affine models, entirely in a web browser. Each model is the composition of a variance block (Black--Scholes, Heston, double
+Heston, Heston with variance jumps) and a jump law (none, Merton, bi-lognormal, Kou, CGMY, Variance Gamma, NIG); all are
+priced through their characteristic function by the COS and PROJ methods, re-implemented in JavaScript and checked against
+a Python reference to $6\cdot10^{-6}$\,\$. We derive the characteristic functions and their martingale constraints, the two
+Fourier methods with their error control, the loss functions and the vega weighting used in production, the optimisers (classic
+and adaptive Nelder--Mead, differential evolution), the multi-day calibration, the model Greeks, the gamma exposure and the
+Monte Carlo engine for exotics. On 26 August 2026 the Bates model fits 222 out-of-the-money options over six maturities with
+an implied-volatility RMSE of $37.3$\,bp. The application is at \url{https://yassinebarnicha.github.io/calibration-btc-svjd/}.
+\end{abstract}
+
+\tableofcontents
+
+%======================================================================
+\section{Introduction}
+Bitcoin options trade mostly on Deribit, with expiries from one day to more than a year and a smile that differs from equity
+markets: the skew changes sign over time, the wings are steep at short maturities, and jumps of several percent are routine.
+A model calibrated to this surface must combine a stochastic variance (term structure, smile dynamics) and jumps (short-dated
+wings); which combination works best is an empirical question, and answering it requires calibrating many models on many days.
+
+The application makes that experiment interactive and portable. Its design goals are:
+\begin{itemize}[nosep]
+  \item \emph{no installation}: a static page, the pricers in JavaScript, every day of data in a file loaded on demand;
+  \item \emph{transparency}: each model shows its dynamics, its constraints and its loss; every numerical choice is adjustable;
+  \item \emph{speed}: a full evaluation of the loss on a production day takes about $1.3$\,ms, so sliders reprice the whole chain
+        live and an optimiser runs about $650$ evaluations per second;
+  \item \emph{reproducibility}: the default settings reproduce the production calibration book exactly.
+\end{itemize}
+
+%======================================================================
+\section{Market data}\label{sec:data}
+\subsection{Instruments and conventions}
+Deribit options are European, written on the BTC/USD index $X$ and quoted in BTC (inverse options): the premium of a call is
+$C^{\mathrm{BTC}}=C^{\mathrm{USD}}/X$. For each expiry $T$ a future (or, for daily expiries, an implied forward) gives the
+forward $F_T$. Prices are converted to dollars, $P=P^{\mathrm{BTC}}X$, and the implied rate of the maturity is
+$r=\ln(F_T/X)/T$. Options are then priced with Black-76 on the forward, $P=e^{-rT}\,\mathrm{B76}(F,K,T,\sigma)$, and implied
+volatilities are obtained by inverting Black-76 (safeguarded Newton, bracket $[10^{-6},5]$, tolerance $10^{-10}$ on the price).
+Time to expiry is counted to the hour up to the 08:00\,UTC expiry, which matters for the shortest maturities.
+
+\subsection{The production book}
+The target price of an option is its mark if $\mathrm{bid}\le\mathrm{mark}\le\mathrm{ask}$, otherwise the mid. The production
+filters keep out-of-the-money options (puts with $K<F$, calls with $K>F$), quoted on both sides, with a relative spread
+$(\mathrm{ask}-\mathrm{bid})/\mathrm{mid}<20\,\%$ and a target price above $0.005$\,BTC, on the last six maturities beyond ten days.
+On 26 August 2026 this leaves 222 of the 914 options of the chain. Every filter can be changed in the application, including
+maturity-dependent thresholds (a $0.004$\,BTC option is a normal wing price at one week, an illiquid tail at one year).
+
+\subsection{Data pipeline}
+A day is a JavaScript file \texttt{jours/<date>.js} holding the whole chain in columns (strikes, maturities, $F$, $r$, bid,
+ask, mark, their implied volatilities, open interest) and the parameter sets calibrated that day. The page loads it with a
+\texttt{<script>} element, so it also works from the local disk. A GitHub Action downloads the chain from the public Deribit API
+every morning after the 08:00\,UTC expiry, adds the day and rebuilds the page; the ``Today'' button does the same from the
+browser. The data cover 270 days since January 2024 and 529 calibrated parameter sets.
+
+%======================================================================
+\section{The models}\label{sec:models}
+\subsection{Composition}
+Under the risk-neutral measure the future is a martingale. All models write
+\begin{equation}\label{eq:compo}
+  \ln\frac{F_T}{F_0}=X^{c}_T+X^{J}_T-\omega T,
+\end{equation}
+where $X^c$ is the continuous part driven by the variance block, $X^J$ a pure-jump Lévy process independent of it, and $\omega$
+the compensator that makes $F$ a martingale.
+\begin{proposition}\label{prop:compo}
+Let $\psi_J$ be the Lévy exponent of $X^J$, $\E[e^{\ii uX^J_T}]=e^{T\psi_J(u)}$, and $A_{\mathrm{var}}(u,T)$ the log characteristic
+function of $X^c_T$, with $\E[e^{X^c_T}]=1$. Then
+\begin{equation}
+  \varphi_T(u)=\E\big[e^{\ii u\ln(F_T/F_0)}\big]=\exp\Big(A_{\mathrm{var}}(u,T)+T\psi_J(u)-\ii u\,\omega T\Big),\qquad \omega=\psi_J(-\ii),
+\end{equation}
+and $F$ is a martingale iff $\psi_J(-\ii)$ is finite.
+\end{proposition}
+\begin{proof}
+Independence factorises the characteristic function. $\E[F_T/F_0]=\E[e^{X^c_T}]\,\E[e^{X^J_T}]\,e^{-\omega T}
+=e^{T\psi_J(-\ii)-\omega T}$, which equals one for all $T$ iff $\omega=\psi_J(-\ii)$; the Markov property of $(F,v)$ then gives
+the martingale property at all intermediate dates.
+\end{proof}
+The page assembles the pricer object from the two blocks: a block that is absent leaves no parameter at all (``no jumps''
+removes $\lambda$ from the sliders, the bounds and the exports, it is not $\lambda=0$).
+
+\subsection{Variance blocks}
+\paragraph{Black--Scholes.} $A_{\mathrm{var}}=-\tfrac12\sigma^2T(u^2+\ii u)$.
+\paragraph{Heston.} $\dd F_t/F_t=\sqrt{v_t}\dd W_t$, $\dd v_t=\kappa(\theta-v_t)\dd t+\sigma\sqrt{v_t}\dd Z_t$, $\dd\langle W,Z\rangle_t=\rho\dd t$.
+The exponent is affine in $v_0$, $A_{\mathrm{var}}=C(u,T)+D(u,T)v_0$, with the Riccati solution written in the form that avoids
+the branch-cut discontinuity of the complex logarithm (Albrecher et al.\ 2007):
+\begin{gather}
+  d=\sqrt{(\rho\sigma\ii u-\kappa)^2+\sigma^2(u^2+\ii u)},\qquad g=\frac{\kappa-\rho\sigma\ii u-d}{\kappa-\rho\sigma\ii u+d},\\
+  C=\frac{\kappa\theta}{\sigma^2}\Big[(\kappa-\rho\sigma\ii u-d)T-2\ln\frac{1-ge^{-dT}}{1-g}\Big],\qquad
+  D=\frac{\kappa-\rho\sigma\ii u-d}{\sigma^2}\,\frac{1-e^{-dT}}{1-ge^{-dT}} .
+\end{gather}
+The Feller condition $2\kappa\theta\ge\sigma^2$ keeps $v$ strictly positive; the optimiser can enforce it.
+\paragraph{Double Heston.} Two independent CIR factors (Christoffersen, Heston and Jacobs 2009): the exponents add. A fast factor
+(large $\kappa_1$) shapes the short end, a slow one the long end; Feller is checked factor by factor.
+\paragraph{Heston with variance jumps.} $\dd v_t=\kappa(\theta-v_t)\dd t+\sigma\sqrt{v_t}\dd Z_t+\dd J^v_t$ with $J^v$ compound
+Poisson of intensity $\lambda_v$ and exponential sizes of mean $\mu_v$ (Duffie, Pan and Singleton 2000). The exponent gains
+\begin{equation}
+  \lambda_v\int_0^T\Big(\frac{1}{1-\mu_vD(u,t)}-1\Big)\dd t,
+\end{equation}
+computed by Simpson's rule on 64 intervals. The exponential law is what keeps the problem affine with a one-dimensional
+integral; a lognormal size would require a numerical integral inside the Fourier inversion, too slow for live use.
+
+\subsection{Jump laws}
+\Cref{tab:jumps} lists the Lévy exponents. Their constraints are those of the existence of $\psi_J(-\ii)$, i.e.\ of $\E[e^{X^J_1}]$.
+\begin{table}[ht]\centering\small
+\renewcommand{\arraystretch}{1.35}
+\begin{tabular}{@{}lll@{}}\toprule
+law & $\psi_J(u)$ & constraint\\\midrule
+Merton & $\lambda\big(e^{\ii u\mu_J-\sigma_J^2u^2/2}-1\big)$ & $\lambda\ge0$, $\sigma_J>0$\\
+bi-lognormal & sum of two Merton exponents & $\lambda_1,\lambda_2\ge0$ \\
+Kou & $\lambda\Big(\dfrac{p\eta_1}{\eta_1-\ii u}+\dfrac{(1-p)\eta_2}{\eta_2+\ii u}-1\Big)$ & $\eta_1>1$, $\eta_2>0$\\
+CGMY & $C\,\Gamma(-Y)\big[(M-\ii u)^Y-M^Y+(G+\ii u)^Y-G^Y\big]$ & $M>1$, $G>0$, $Y<2$, $Y\notin\{0,1\}$\\
+Variance Gamma & $-\dfrac1\nu\ln\Big(1-\ii u\theta\nu+\tfrac12\sigma^2\nu u^2\Big)$ & $1-\theta\nu-\tfrac12\sigma^2\nu>0$\\
+NIG & $\delta\Big(\sqrt{\alpha^2-\beta^2}-\sqrt{\alpha^2-(\beta+\ii u)^2}\Big)$ & $\alpha>|\beta+1|$, $\delta>0$\\\bottomrule
+\end{tabular}
+\caption{Lévy exponents of the jump blocks (Merton 1976; Kou 2002; Carr, Geman, Madan and Yor 2002; Madan, Carr and Chang
+1998; Barndorff-Nielsen 1997).}\label{tab:jumps}
+\end{table}
+
+\begin{remark}[Identification]
+Several compositions have flat directions that no optimiser can resolve from one day of data: the two components of the
+bi-lognormal law are interchangeable unless their intensities live in disjoint ranges (production bounds $\lambda_1\in[1,300]$,
+$\lambda_2\in[0,1]$); in Heston, $v_0$ and $\theta$ trade off at short horizons and $\kappa$ and $\sigma$ along a ridge; jump
+intensity and jump size trade off for the short-dated wings. The page makes these visible: parameters can be locked, swapped
+(``Swap components 1 and 2'') or freed per day when several days are calibrated together (\cref{sec:stack}).
+\end{remark}
+
+%======================================================================
+\section{Fourier pricing}\label{sec:fourier}
+Both methods need only $\varphi_T$; the first two cumulants $c_1,c_2$ of $\ln(F_T/F_0)$ are obtained by central differences of
+$\ln\varphi_T$ at $u=0$ (step $10^{-5}$), and the fourth $c_4$ in closed form for each jump family.
+
+\subsection{The COS method}
+Fang and Oosterlee (2008) expand the density of $x=\ln(F_T/F_0)$ on a truncated interval $[a,b]$ in a cosine series whose
+coefficients are read directly from the characteristic function:
+\begin{equation}
+  f(x)\approx\frac{2}{b-a}{\sum_{k=0}^{N-1}}{}'\;\mathrm{Re}\Big[\varphi_T\big(u_k\big)e^{-\ii u_ka}\Big]\cos\big(u_k(x-a)\big),\qquad u_k=\frac{k\pi}{b-a},
+\end{equation}
+where $\sum'$ halves the first term. Integrating a payoff against this expansion uses the closed-form cosine moments
+$\chi_k,\psi_k$ of $e^x$ and $1$ on sub-intervals. Puts are priced (their payoff is bounded) and calls follow from put--call
+parity $C-P=e^{-rT}(F-K)$, which removes the cancellation error of deep in-the-money calls. The implementation uses
+$[a,b]=c_1\pm L\sqrt{c_2}$ with $L=24$ and $N=512$ by default. Since all options of a maturity share $\varphi_T(u_k)$, these
+$N$ values are computed once per maturity; the series is cut where a bound on its remainder falls below $10^{-10}$\,\$:
+long maturities, whose characteristic function decays fast, need only a fraction of the terms.
+
+\paragraph{Errors.} The error has two parts: truncation of the density to $[a,b]$, controlled by $L$ and the tails, and the
+series truncation, which decays exponentially for densities that are smooth on $[a,b]$. COS needs a valid second cumulant and
+loses accuracy when the jump part dominates the variance at very short maturities, where the density is spiky.
+
+\subsection{The PROJ method}
+Kirkby (2015) projects the density on a basis of linear B-splines on a uniform grid of $N$ points and spacing $\Delta$. The
+projection coefficients are obtained by one FFT of $\varphi_T$ multiplied by the Fourier transform of the basis, and the payoff
+is integrated against the basis in closed form (with a three-point Gauss rule for the boundary cell). The grid half-width is
+\begin{equation}
+  \alpha=\max\Big(L\sqrt{|c_2|+\sqrt{|c_4|}},\ 1.15\max_K|\ln(K/F)|+c_1\Big),
+\end{equation}
+$L=20$, $N=2^{11}$ by default. The error is $O(\Delta^2)$ for smooth densities and the method stays robust when $|\mu_J|$,
+$\sigma_J$ or $\lambda$ are large, which is why it serves as the reference for exotic controls and the volatility surface. COS
+is about three times faster for the calibration loop.
+
+\subsection{Validation of the pricers}
+\begin{itemize}[nosep]
+  \item Put--call parity at the money: $C(K=F)-P(K=F)=0.0000$\,bp on the 28 compositions (martingale property).
+  \item Black--Scholes recovered to within $0.005$\,bp; COS and PROJ equal on a full smile.
+  \item JavaScript pricers equal to the Python reference pricers to $6\cdot10^{-6}$\,\$.
+  \item Successive optimisations of the code checked against the previous version on all compositions, COS and PROJ: equal to
+        rounding noise ($4.5\cdot10^{-8}$ relative).
+\end{itemize}
+
+%======================================================================
+\section{The calibration problem}\label{sec:calib}
+\subsection{Loss functions}
+For options $i$ with target price $P_i$, implied volatility $\sigma_i$ and Black-76 vega $\mathcal V_i$ (at the target volatility),
+and model values $\hat P_i(\Theta)$, $\hat\sigma_i(\Theta)$, the loss is a weighted mean of squared errors
+\begin{equation}
+  \mathcal L(\Theta)=\frac{\sum_iw_i\,e_i(\Theta)^2}{\sum_iw_i},
+\end{equation}
+with five error measures (price, relative price, price over the bid--ask range, implied volatility in bp, and a combination of
+price and volatility with a weight $k$) and five weightings (none, raw $1/\mathcal V_i^2$, $1/\mathcal V_i^2$ normalised per
+maturity to mean one or to sum one, equal weight per maturity). The page displays the formula being minimised.
+\begin{proposition}[Vega weighting]
+To first order, $P_i-\hat P_i\approx\mathcal V_i\,(\sigma_i-\hat\sigma_i)$, so $\sum_i(P_i-\hat P_i)^2/\mathcal V_i^2\approx\sum_i(\sigma_i-\hat\sigma_i)^2$.
+\end{proposition}
+The price loss with $1/\mathcal V^2$ weights therefore approximates the implied-volatility loss without inverting Black-76 at each
+evaluation. The production loss, \texttt{inv\_vega2\_equal}, normalises the weights to sum one per maturity so that every
+maturity counts equally whatever its number of options; with raw weights, short maturities (small vega) dominate. A floor of
+$10^{-4}$ on the vega avoids infinite weights. The IV and price RMSE are reported whatever the loss.
+
+\subsection{Search space}
+Each free parameter is mapped to a slider $t\in[0,1]$ inside its bounds $[\ell,h]$: $\Theta=\ell(h/\ell)^t$ for positive scale
+parameters (log scale), $\Theta=\ell+t(h-\ell)$ for $\rho$ and $\mu_J$, and $\Theta=\ell+0.01\,(e^{t\ln(1+(h-\ell)/0.01)}-1)$ for
+intensities, which can reach zero exactly. The optimisers work in $t$; leaving $[0,1]$, or violating Feller when it is enforced,
+gives $\mathcal L=+\infty$. The default bounds are very wide; the production bounds of each model can be loaded.
+
+\subsection{Optimisers}
+\begin{itemize}
+  \item \emph{Classic Nelder--Mead} (reflection, expansion, contraction, shrink coefficients $1,2,\tfrac12,\tfrac12$), from the
+        current parameters, initial step $0.04$ in slider units, stopping when $(f_{\max}-f_{\min})/f_{\min}\le10^{-6}$ or after
+        2500 evaluations.
+  \item \emph{Adaptive Nelder--Mead} (Gao and Han 2012): coefficients $1$, $1+2/n$, $\tfrac34-\tfrac1{2n}$, $1-\tfrac1n$ in dimension
+        $n$, which keeps the simplex from degenerating when many parameters are free.
+  \item \emph{Differential evolution} (Storn and Price 1997): a population of $\text{popsize}\times n$ points initialised by Latin
+        hypercube, mutation $v=x_{r_1}+F(x_{r_2}-x_{r_3})$ (rand1bin) or $v=x_{\text{best}}+F(x_{r_1}-x_{r_2})$ (best1bin) with $F$
+        drawn in $[F_{\min},F_{\max}]$ (dithering), binomial crossover with rate $CR$ and greedy selection; it stops when the
+        standard deviation of the population's losses falls below $\text{atol}+\text{tol}\,|\text{mean}|$. The production settings
+        are rand1bin, $F\in[0.7,1.5]$, $CR=0.6$, popsize 25, tol $10^{-7}$; the current parameters can be injected in the population.
+  \item \emph{DE then Nelder--Mead}: the Python production chain (global then local), with Nelder--Mead in place of SLSQP.
+\end{itemize}
+Same seed, same settings, same data: same result. The optimisers run in 12\,ms slices between two frames, so the page stays
+fluid (60 frames per second) during a calibration.
+
+\subsection{Several days at once}\label{sec:stack}
+A contract observed on two consecutive days gives two maturities $T$ and $T-1/365$: stacking $N$ days multiplies the points of
+the term structure by $N$ without new data. Parameters are shared by all days, which is the identifying assumption; the state
+variables ($v_0$, $\theta$, $\rho$, jump intensities) can be freed day by day. The weighting can give each maturity, or each day,
+a total weight of one.
+
+%======================================================================
+\section{Analysis tools}\label{sec:tools}
+\subsection{Model Greeks}
+Greeks are computed by central finite differences on the model's own Fourier pricer, with the parameters fixed: $\Delta$ and
+$\Gamma$ by moving $F$ by $\pm0.1\,\%$, vega by scaling the instantaneous volatility $\sigma_0$ by $\pm0.1\,\%$ ($\sigma$ in
+Black--Scholes, $\sqrt{v_0}$ in Heston, $\sqrt{v_{0,1}+v_{0,2}}$ in double Heston), theta by moving the maturity by one day on each
+side. With the Black--Scholes block, these differences recover the Black-76 closed forms to the decimals shown for $\Delta$,
+$\Gamma$ and vega, and within $0.1\,\%$ for $\Theta$. The gap between the model delta and the Black-76 delta at the market
+volatility is the smile effect. With its parameters fixed, the model's implied volatility is a function of moneyness, so when
+$F$ moves the option slides along the smile: $\Delta_{\text{model}}=\Delta_{\text{B76}}+\mathcal V\,\partial\sigma_{\text{imp}}/\partial F$.
+The sign of the correction follows the slope of the smile, and it is the extra hedge the model recommends.
+
+\subsection{Volatility surface}
+The model surface is priced by PROJ on a strike grid per maturity (25 to 61 strikes) and inverted with Black-76. It is shown
+either on the calibrated range only or over all the day's options, where it is an extrapolation of what the model has seen.
+
+\subsection{Gamma exposure}
+The gamma exposure of option $i$ is $\mathrm{GEX}_i=s_i\cdot\mathrm{OI}_i\cdot\Gamma_i\cdot F^2\cdot1\,\%$, the dollar delta to trade
+to hedge a $+1\,\%$ move of the future, with open interest in BTC. The ``market makers'' convention takes $s_i=+1$ for calls and
+$-1$ for puts (dealers assumed long the public's calls and short its puts). The profile recomputes the total GEX for a future
+moved from $-20\,\%$ to $+20\,\%$ with the volatilities of each strike frozen; its zero is the \emph{flip level}. It is a convention:
+Deribit does not publish who holds what.
+
+\subsection{Exotic options by Monte Carlo}
+Paths of the future are simulated with the active model. The CIR variance uses the quadratic--exponential scheme of Andersen
+(2008): given $v_t$, the conditional mean $m$ and variance $s^2$ of $v_{t+\Delta}$ are matched by $a(b+Z)^2$ when
+$s^2/m^2\le1.5$ and by a mixture of a mass at zero and an exponential law otherwise. Lognormal, Kou, Variance Gamma (gamma
+subordinator) and NIG (inverse Gaussian subordinator) jumps are simulated exactly per step and compensated, so the future stays
+a martingale; CGMY has no simple exact simulation and is excluded. Averages, extrema and barriers are monitored at each step.
+American options use Longstaff--Schwartz with the basis $1,x,x^2,x^3$, $x=F/K$, on in-the-money paths. The European with the same
+strike is simulated on the same paths and compared with its Fourier price: the gap measures the discretisation bias, and the
+European serves as a control variate, $\hat Y_{\mathrm{cv}}=\hat Y-b^\star(\hat C-C_{\mathrm{Fourier}})$ with
+$b^\star=\operatorname{Cov}(Y,C)/\operatorname{Var}(C)$. On six model families the simulated European falls within two standard
+errors of the Fourier price; the early-exercise premium is zero for $r=0$ and positive for $r>0$, as it must be.
+
+%======================================================================
+\section{Results}\label{sec:results}
+\subsection{A calibrated day}
+\Cref{tab:bates,fig:smiles} show the Bates model (Heston + Merton) on 26 August 2026, with its production calibration
+(differential evolution then local search, COS, price loss with \texttt{inv\_vega2\_equal} weights).
+
+\begin{table}[ht]\centering\small
+\begin{tabular}{@{}lcccccccc@{}}\toprule
+ & $\kappa$ & $\theta$ & $\sigma$ & $\rho$ & $v_0$ & $\lambda$ & $\mu_J$ & $\sigma_J$\\\midrule
+value & $46.03$ & $0.1334$ & $2.491$ & $0.139$ & $0.1630$ & $0.149$ & $-0.460$ & $0.783$\\\bottomrule
+\end{tabular}
+\caption{Bates parameters on 2026-08-26: IV RMSE $37.3$\,bp and price RMSE $44.0$\,\$ on 222 options, Feller margin
+$2\kappa\theta-\sigma^2=6.08$.}\label{tab:bates}
+\end{table}
+
+The fit has a clear reading. The variance reverts very fast ($\kappa=46$, a half-life of $\ln2/\kappa\approx5.5$ days) towards
+$\sqrt\theta=36.5\,\%$ from $\sqrt{v_0}=40.4\,\%$, with a large volatility of variance: the term structure of the smile is short
+and steep. The spot--volatility correlation is \emph{positive} ($\rho=0.14$), the opposite of equity indices: on that day upward
+moves were expected to come with higher volatility, which lifts the call wing. The jump component is a rare crash
+($\lambda=0.15$ per year, mean size $e^{-0.46}-1\approx-37\,\%$, dispersion $0.78$), which carries the put wing at long maturities.
+
+\begin{figure}[ht]\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=3 by 2,horizontal sep=1.3cm,vertical sep=2.1cm},width=0.36\textwidth,height=4.6cm,
+  xlabel={$\ln(K/F)$},xticklabel style={/pgf/number format/fixed}]
+\nextgroupplot[title={2026-09-11 (16 d, 38 bp)},ylabel={IV (\%)},legend to name=leg,legend columns=3]
+  \addplot[only marks,mark=*,mark size=1pt,black] table[x=k,y=mkt]{data/smile1.dat}; \addlegendentry{market (target)}
+  \addplot[red!80!black,thick] table[x=k,y=mod]{data/smile1.dat}; \addlegendentry{Bates}
+  \addplot[only marks,mark=-,gray] table[x=k,y=bid]{data/smile1.dat}; \addlegendentry{bid / ask IV}
+  \addplot[only marks,mark=-,gray,forget plot] table[x=k,y=ask]{data/smile1.dat};
+\nextgroupplot[title={2026-09-25 (30 d, 24 bp)}]
+  \addplot[only marks,mark=*,mark size=1pt,black] table[x=k,y=mkt]{data/smile2.dat};
+  \addplot[red!80!black,thick] table[x=k,y=mod]{data/smile2.dat};
+  \addplot[only marks,mark=-,gray] table[x=k,y=bid]{data/smile2.dat}; \addplot[only marks,mark=-,gray] table[x=k,y=ask]{data/smile2.dat};
+\nextgroupplot[title={2026-10-30 (65 d, 45 bp)}]
+  \addplot[only marks,mark=*,mark size=1pt,black] table[x=k,y=mkt]{data/smile3.dat};
+  \addplot[red!80!black,thick] table[x=k,y=mod]{data/smile3.dat};
+  \addplot[only marks,mark=-,gray] table[x=k,y=bid]{data/smile3.dat}; \addplot[only marks,mark=-,gray] table[x=k,y=ask]{data/smile3.dat};
+\nextgroupplot[title={2026-12-25 (121 d, 45 bp)},ylabel={IV (\%)}]
+  \addplot[only marks,mark=*,mark size=1pt,black] table[x=k,y=mkt]{data/smile4.dat};
+  \addplot[red!80!black,thick] table[x=k,y=mod]{data/smile4.dat};
+  \addplot[only marks,mark=-,gray] table[x=k,y=bid]{data/smile4.dat}; \addplot[only marks,mark=-,gray] table[x=k,y=ask]{data/smile4.dat};
+\nextgroupplot[title={2027-03-26 (212 d, 32 bp)}]
+  \addplot[only marks,mark=*,mark size=1pt,black] table[x=k,y=mkt]{data/smile5.dat};
+  \addplot[red!80!black,thick] table[x=k,y=mod]{data/smile5.dat};
+  \addplot[only marks,mark=-,gray] table[x=k,y=bid]{data/smile5.dat}; \addplot[only marks,mark=-,gray] table[x=k,y=ask]{data/smile5.dat};
+\nextgroupplot[title={2027-06-25 (303 d, 32 bp)}]
+  \addplot[only marks,mark=*,mark size=1pt,black] table[x=k,y=mkt]{data/smile6.dat};
+  \addplot[red!80!black,thick] table[x=k,y=mod]{data/smile6.dat};
+  \addplot[only marks,mark=-,gray] table[x=k,y=bid]{data/smile6.dat}; \addplot[only marks,mark=-,gray] table[x=k,y=ask]{data/smile6.dat};
+\end{groupplot}
+\end{tikzpicture}
+
+\pgfplotslegendfromname{leg}
+\caption{The six production maturities of 2026-08-26 and the calibrated Bates smiles; the IV RMSE of each maturity is in its
+title. Data exported from the application.}\label{fig:smiles}
+\end{figure}
+
+\subsection{Calibration history}
+\Cref{fig:history} shows the best IV RMSE of each day among the calibrated sets embedded in the application, for Bates and for
+the bi-lognormal Bates model. The median is $35.9$\,bp for Bates (61 days) and $37.7$\,bp for the bi-lognormal model (73 days):
+the second jump component rarely pays for its three extra parameters on these days, but it removes the occasional failures of
+a single jump size (the worst Bates day is above $1000$\,bp, a failed local search, against $114$\,bp for the bi-lognormal model).
+The median correlation is slightly positive for both models.
+
+\begin{figure}[ht]\centering
+\begin{tikzpicture}
+\begin{axis}[date coordinates in=x,width=0.92\textwidth,height=6cm,ymin=0,ymax=150,ylabel={best IV RMSE of the day (bp)},
+  xticklabel={\year-\month},xtick={2024-01-01,2024-07-01,2025-01-01,2025-07-01,2026-01-01,2026-07-01},
+  xticklabel style={font=\scriptsize},legend pos=north east,unbounded coords=jump,restrict y to domain=0:150]
+  \addplot+[only marks,mark=*,mark size=1.2pt] table[x=date,y=rmse]{data/histoire_heston-logn.dat}; \addlegendentry{Bates (Heston + Merton)}
+  \addplot+[only marks,mark=square*,mark size=1.2pt] table[x=date,y=rmse]{data/histoire_heston-biln.dat}; \addlegendentry{Heston + bi-lognormal}
+\end{axis}
+\end{tikzpicture}
+\caption{Best IV RMSE per day of the calibrated sets embedded in the application (values above 150\,bp not shown). The gap in
+2025 is a gap in the calibration campaigns, not in the market data.}\label{fig:history}
+\end{figure}
+
+%======================================================================
+\section{Engineering}\label{sec:eng}
+\begin{itemize}
+  \item \emph{A static page}: \texttt{index.html} carries the page, its pricers and one day; the other days, the futures history
+        and the calibrated sets are files loaded on demand. Settings are kept in the browser, or written to a folder of the disk
+        with the File System Access API (Chrome, Edge). No server, no database, no account.
+  \item \emph{Performance} (Chrome, Bates, six maturities, 222 options, COS): a full evaluation of the loss takes about
+        $1.3$\,ms, a screen refresh about $3.5$\,ms. Characteristic-function constants that do not depend on $u$ are computed once
+        per parameter set; complex arithmetic is written in real numbers in the hot loops; cosines are advanced by rotation
+        instead of being recomputed.
+  \item \emph{Mathematics on the page}: formulas are written in LaTeX and rendered once at build time with KaTeX, so the page
+        runs no math script; rendered formulas are cached, and the daily GitHub Action needs only Python.
+\end{itemize}
+
+\section{Limits}
+\begin{itemize}[nosep]
+  \item The local optimisers depend on their starting point; differential evolution is global but far more expensive.
+  \item Stacking days assumes parameters stable over the window; sharing $v_0$ is justified only for close days.
+  \item Several compositions are weakly identified on a single day (\cref{sec:models}); a good RMSE does not mean that every
+        parameter is meaningful.
+  \item Writing files works only in browsers that implement the File System Access API.
+\end{itemize}
+
+\begin{thebibliography}{99}\small
+\bibitem{alb} H.~Albrecher, P.~Mayer, W.~Schoutens and J.~Tistaert. The little Heston trap. \emph{Wilmott Magazine}, January 2007.
+\bibitem{and} L.~Andersen. Simple and efficient simulation of the Heston stochastic volatility model. \emph{Journal of
+  Computational Finance}, 11(3):1--42, 2008.
+\bibitem{bn} O.~E.~Barndorff-Nielsen. Normal inverse Gaussian distributions and stochastic volatility modelling.
+  \emph{Scandinavian Journal of Statistics}, 24(1):1--13, 1997.
+\bibitem{bates} D.~Bates. Jumps and stochastic volatility: exchange rate processes implicit in Deutsche mark options.
+  \emph{Review of Financial Studies}, 9(1):69--107, 1996.
+\bibitem{cgmy} P.~Carr, H.~Geman, D.~Madan and M.~Yor. The fine structure of asset returns: an empirical investigation.
+  \emph{Journal of Business}, 75(2):305--332, 2002.
+\bibitem{chj} P.~Christoffersen, S.~Heston and K.~Jacobs. The shape and term structure of the index option smirk: why multifactor
+  stochastic volatility models work so well. \emph{Management Science}, 55(12):1914--1932, 2009.
+\bibitem{dps} D.~Duffie, J.~Pan and K.~Singleton. Transform analysis and asset pricing for affine jump-diffusions.
+  \emph{Econometrica}, 68(6):1343--1376, 2000.
+\bibitem{fo} F.~Fang and C.~Oosterlee. A novel pricing method for European options based on Fourier-cosine series expansions.
+  \emph{SIAM Journal on Scientific Computing}, 31(2):826--848, 2008.
+\bibitem{gh} F.~Gao and L.~Han. Implementing the Nelder--Mead simplex algorithm with adaptive parameters.
+  \emph{Computational Optimization and Applications}, 51(1):259--277, 2012.
+\bibitem{heston} S.~Heston. A closed-form solution for options with stochastic volatility with applications to bond and
+  currency options. \emph{Review of Financial Studies}, 6(2):327--343, 1993.
+\bibitem{kirkby} J.~L.~Kirkby. Efficient option pricing by frame duality with the fast Fourier transform. \emph{SIAM Journal on
+  Financial Mathematics}, 6(1):713--747, 2015.
+\bibitem{kou} S.~Kou. A jump-diffusion model for option pricing. \emph{Management Science}, 48(8):1086--1101, 2002.
+\bibitem{ls} F.~Longstaff and E.~Schwartz. Valuing American options by simulation: a simple least-squares approach.
+  \emph{Review of Financial Studies}, 14(1):113--147, 2001.
+\bibitem{mcc} D.~Madan, P.~Carr and E.~Chang. The variance gamma process and option pricing. \emph{European Finance Review},
+  2:79--105, 1998.
+\bibitem{merton} R.~Merton. Option pricing when underlying stock returns are discontinuous. \emph{Journal of Financial Economics},
+  3:125--144, 1976.
+\bibitem{sp} R.~Storn and K.~Price. Differential evolution -- a simple and efficient heuristic for global optimization over
+  continuous spaces. \emph{Journal of Global Optimization}, 11:341--359, 1997.
+\end{thebibliography}
+\end{document}

@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Range des jeux de parametres calibres dans les jours de la page (../jours/<jour>.js), puis python build.py.
+"""Stores calibrated parameter sets in the days of the page (../jours/<day>.js), then python build.py.
 
-Chaque jeu va dans le jour de son instantane (ou de sa date). Les calibrations deja presentes dans un jour
-sont remplacees par celles du fichier ; le point de depart generique est garde.
+Each set goes to the day of its snapshot (or of its date). The calibrations already present in a day are replaced by
+those of the file; the generic starting point is kept.
 
-Usage :
-    python ajouter_calibrations.py                              # calibrations.json (a cote de ce script)
-    python ajouter_calibrations.py historique.csv               # historique de la chaine quotidienne
+Usage:
+    python ajouter_calibrations.py                              # calibrations.json (next to this script)
+    python ajouter_calibrations.py historique.csv               # history of the daily chain
     python ajouter_calibrations.py calibrations.json --jours 2026-10-07 2026-10-08
-    python ajouter_calibrations.py --ajouter                    # ajoute aux calibrations existantes au lieu de les remplacer
+    python ajouter_calibrations.py --ajouter                    # adds to the existing calibrations instead of replacing them
 """
 import argparse
 import json
@@ -57,12 +57,12 @@ def ranger(jeux, jours=None, ajouter=False):
 
 def main():
     a = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    a.add_argument("fichier", nargs="?", default=str(ICI / "calibrations.json"), help="calibrations.json ou historique.csv de la chaîne quotidienne (défaut : %(default)s)")
-    a.add_argument("--jours", nargs="*", help="AAAA-MM-JJ ou AAAA-MM-JJ_HHMMSS (defaut : tous les jours de la page)")
-    a.add_argument("--ajouter", action="store_true", help="garder les calibrations deja presentes dans les jours")
+    a.add_argument("fichier", nargs="?", default=str(ICI / "calibrations.json"), help="calibrations.json or historique.csv of the daily chain (default: %(default)s)")
+    a.add_argument("--jours", nargs="*", help="YYYY-MM-DD or YYYY-MM-DD_HHMMSS (default: every day of the page)")
+    a.add_argument("--ajouter", action="store_true", help="keep the calibrations already present in the days")
     a = a.parse_args()
     compte = ranger(charger_jeux(a.fichier), set(a.jours or []), a.ajouter)
-    print("{} jeux ranges dans {} jours".format(sum(compte.values()), sum(1 for n in compte.values() if n)))
+    print("{} sets stored in {} days".format(sum(compte.values()), sum(1 for n in compte.values() if n)))
 
 
 if __name__ == "__main__":

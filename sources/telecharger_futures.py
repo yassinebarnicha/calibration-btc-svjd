@@ -1,18 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Historique quotidien complet de chaque future Deribit -> calibration_a_la_main/futures.js.
+"""Full daily history of every Deribit future -> futures.js.
 
 SOURCE
-Deribit sert `get_tradingview_chart_data` meme pour les instruments expires : on obtient la
-cloture quotidienne de chaque future sur toute sa vie, depuis son emission. Les jours de la page
-(calibration_a_la_main/jours/*.js) indiquent quelles echeances ont existe.
+Deribit serves `get_tradingview_chart_data` even for expired instruments: this gives the daily close of each future
+over its whole life, since its listing. The days of the page (jours/*.js) tell which maturities existed.
 
 INCREMENTAL
-Chaque reponse brute est gardee dans cache_futures/. Une echeance expiree ne bougera plus : on ne
-la retelecharge jamais. Seuls les instruments encore vivants sont rafraichis a chaque passage.
+Each raw answer is kept in cache_futures/. An expired maturity will not change any more: it is never downloaded
+again. Only the instruments still alive are refreshed at each run.
 
-Usage (poste connecte), puis python build.py :
+Usage (online computer), then python build.py:
     python telecharger_futures.py                         # incremental
-    python telecharger_futures.py --tout-retelecharger    # ignore le cache
+    python telecharger_futures.py --tout-retelecharger    # ignores the cache
     python telecharger_futures.py --cache D --pause 0.3
 """
 import argparse
@@ -125,16 +124,16 @@ def cachee(nom, vivant, charge):
 def main():
     global CACHE
     a = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    a.add_argument("--cache", default=str(CACHE), help="dossier du cache des reponses brutes (defaut : %(default)s)")
-    a.add_argument("--tout-retelecharger", action="store_true", help="retelecharge aussi les echeances expirees deja en cache")
-    a.add_argument("--pause", type=float, default=0.12, help="secondes entre deux requetes (defaut : %(default)s)")
+    a.add_argument("--cache", default=str(CACHE), help="cache folder of the raw answers (default: %(default)s)")
+    a.add_argument("--tout-retelecharger", action="store_true", help="also downloads again the expired maturities already cached")
+    a.add_argument("--pause", type=float, default=0.12, help="seconds between two requests (default: %(default)s)")
     a = a.parse_args()
     CACHE = Path(a.cache)
     CACHE.mkdir(parents=True, exist_ok=True)
     implicite = instantanes()
     liste = sorted(implicite)
     aujourdhui = datetime.now(timezone.utc).replace(tzinfo=None)
-    print("{} echeances a couvrir".format(len(liste)))
+    print("{} maturities to cover".format(len(liste)))
 
     brut, absentes, neuves = {}, [], 0
     for i, iso in enumerate(liste, 1):
@@ -210,17 +209,17 @@ def main():
         os.replace(tmp, cible)
 
     pts = sum(sum(v is not None for v in s[1]) for s in futures.values())
-    print("\n{} echeances : {} futures cotes (Deribit, depuis l'emission)"
-          " + {} forwards implicites (nos instantanes)".format(
+    print("\n{} maturities: {} listed futures (Deribit, since listing)"
+          " + {} implied forwards (our snapshots)".format(
               len(futures), len(brut), len(retombee)))
-    print("{} points, {} jours d'axe, {:.0f} Ko · {} telecharge(s) ce passage".format(
+    print("{} points, {} axis days, {:.0f} KB · {} downloaded this run".format(
         pts, len(axe), len(txt) / 1024, neuves))
     perdues = [a for a in absentes if a not in retombee]
     if perdues:
-        print("{} echeance(s) sans aucune source : {}".format(
+        print("{} maturity(ies) without any source: {}".format(
             len(perdues), ", ".join(perdues[:6])))
     long = max(futures.items(), key=lambda kv: len(kv[1][1]))
-    print("la plus longue : {} sur {} jours, du {}".format(
+    print("the longest: {} over {} days, from {}".format(
         long[0], len(long[1][1]), axe[long[1][0]]))
 
 
