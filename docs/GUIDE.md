@@ -91,9 +91,13 @@ Back to the [README](../README.md) · theory in the [report](../REPORT.pdf).
     the two reconstructed days).
 11. **Replication — static replication of a payoff** (*Replication* tab; engine in `sources/replication.js`, tests in
     `tests/test_replication.js`): a payoff f(S_T) at the chosen maturity is rebuilt as f(F) + f'(F)(S_T − F) plus
-    out-of-the-money puts below the future F and calls above it (Carr & Madan). Presets: straddle, call (check: one
-    option), call spread, log contract (variance swap), quadratic, power, or a free formula of S, F, K, K2, T (parsed,
-    never evaluated as code). Weights: *exact at the listed strikes* (change of slope of f between strikes: the
+    out-of-the-money puts below the future F and calls above it: the replication theorem of Carr & Madan (1998).
+    Payoffs, from a list grouped by family (the formula of the chosen one is shown, with only the fields it uses):
+    vanilla (call, put, digital call and put paying a $), spreads and combinations (call and put spreads, straddle,
+    strangle, butterfly, risk reversal, collar, covered call), variance and volatility (log contract = variance swap,
+    gamma swap, corridor variance swap on [K, K₂], all shown as implied volatilities), powers and logarithms
+    (quadratic, F·(S/F)^a, power call, F·ln(S/F), inverse F²/S, F·exp(a(S/F − 1))), or a free formula of S, F, K,
+    K2, T, a (parsed, never evaluated as code). Weights: *exact at the listed strikes* (change of slope of f between strikes: the
     portfolio equals f at every listed strike, kinks included) or *f''(K)·ΔK* (the quadrature of TooManyOptions, for
     smooth payoffs only). Filters: minimum open interest, two-sided quotes. Tiles: cost at the mark or mid, executable
     cost (buy at the ask, sell at the bid), the same payoff with dense strikes under the interpolated smile and under

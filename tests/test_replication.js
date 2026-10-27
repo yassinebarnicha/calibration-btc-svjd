@@ -103,7 +103,70 @@ verifier("quadrature widths [2, 5, 11, 20] -> [3, 4.5, 7.5, 9]",
            S.map(s => R.valeurEcheance(spread, F, s).toFixed(2)).join(", "));
 }
 
-// ---- 5. payoff expressions ----
+// ---- 5. the catalogue of payoffs ----
+{
+  const F = 100000, T = 45 / 365, r = 0.04, sig = 0.55, actu = Math.exp(-r * T);
+  const p = { F, K: 95000, K2: 120000, T, a: 2 };
+  const putsK = [40000, 55000, 70000, 80000, 90000, 95000, 98000];
+  const callsK = [102000, 105000, 110000, 120000, 140000, 170000];
+  const K = putsK.concat(callsK);
+  const ids = R.CATALOGUE.map(c => c.id);
+  verifier("catalogue: " + ids.length + " payoffs, unique ids, each with a group, a name and f",
+           new Set(ids).size === ids.length && R.CATALOGUE.every(c => c.groupe && c.nom && typeof c.f === "function"
+             && Array.isArray(c.params) && c.params.every(q => ["K", "K2", "a"].includes(q))));
+  const fini = R.CATALOGUE.filter(c => ![0.2, 0.5, 0.9, 1, 1.1, 2, 4].every(m => isFinite(c.f(m * F, { ...p, a: c.a !== undefined ? c.a : 1 }))));
+  verifier("catalogue: every payoff finite from 0.2 F to 4 F", !fini.length, fini.map(c => c.id).join(", "));
+  let pire = 0, quel = "";
+  for (const c of R.CATALOGUE) {
+    const q = { ...p, a: c.a !== undefined ? c.a : 1 }, f = s => c.f(s, q);
+    const port = R.poids(f, F, putsK, callsK, "interp");
+    const e = Math.max(...K.map(k => Math.abs(R.valeurEcheance(port, F, k) - f(k)) / Math.max(1, Math.abs(f(k)))));
+    if (e > pire) { pire = e; quel = c.id; }
+  }
+  verifier("catalogue: interpolation weights exact at every listed strike, for every payoff", pire < 1e-9,
+           "worst " + pire.toExponential(2) + (quel ? " (" + quel + ")" : ""));
+  // payoffs made of listed options: replicated by those options, whatever the method of pricing
+  const prix = (k, c) => P.b76(F, k, T, r, sig, c);
+  const C = k => prix(k, true), Pu = k => prix(k, false);
+  const attendus = {
+    call: C(95000), put: Pu(95000), spread: C(95000) - C(120000), putspread: Pu(120000) - Pu(95000),
+    straddle: C(95000) + Pu(95000), strangle: Pu(95000) + C(120000), riskrev: C(120000) - Pu(95000),
+    collar: actu * F + Pu(95000) - C(120000), covered: actu * F - C(120000),
+  };
+  const ecarts = Object.entries(attendus).map(([id, v]) => {
+    const c = R.parId(id), q = { ...p, a: 1 };
+    const port = R.poids(s => c.f(s, q), F, putsK, callsK, "interp");
+    return [id, Math.abs(R.valeurAujourdhui(port, actu, prix) - v)];
+  });
+  verifier("catalogue: calls, puts, spreads, straddle, strangle, risk reversal, collar, covered call cost exactly their options",
+           ecarts.every(([, e]) => e < 1e-6), ecarts.filter(([, e]) => e >= 1e-6).map(([i, e]) => i + " " + e.toExponential(2)).join(", "));
+  // corridor variance: closed form = log contract when the corridor is the whole line; f'' = 2 / (T k^2) inside
+  const logc = s => (s - F) / F - Math.log(s / F);
+  verifier("corridor [1, 1e12] = log contract",
+           [0.3, 0.8, 1, 1.25, 3].every(m => proche(R.corridor(m * F, F, 1, 1e12), logc(m * F), 1e-9)));
+  const cor = R.parId("corridor"), fc = s => cor.f(s, p);
+  verifier("corridor: f'' = 2 / (T K^2) inside [K, K2], 0 outside, f(F) = 0",
+           proche(R.derivee2(fc, 105000) * T * 105000 ** 2 / 2, 1, 1e-4) && proche(R.derivee2(fc, 60000), 0, 1e-12)
+           && proche(R.derivee2(fc, 150000), 0, 1e-12) && proche(fc(F), 0, 1e-12));
+  // under flat Black-76, gamma swap and wide-corridor variance both price at sigma^2
+  const g = R.grilleDense(F, 6 * sig * Math.sqrt(T), 600);
+  for (const [id, q] of [["gammaswap", p], ["corridor", { ...p, K: F * Math.exp(-6 * sig * Math.sqrt(T)), K2: F * Math.exp(6 * sig * Math.sqrt(T)) }]]) {
+    const c = R.parId(id), port = R.poids(s => c.f(s, q), F, g.puts, g.calls, "interp");
+    const vol = Math.sqrt(R.valeurAujourdhui(port, actu, prix) / actu);
+    verifier(id + " under flat Black-76 vol 55 % prices at sigma^2", proche(vol, sig, 0.002), "implied vol " + (100 * vol).toFixed(3) + " %");
+  }
+  // a narrower corridor is cheaper (less variance accrues inside it)
+  const etroit = R.poids(fc, F, g.puts, g.calls, "interp");
+  verifier("corridor [95 000, 120 000] is worth less than the full variance swap",
+           R.valeurAujourdhui(etroit, actu, prix) / actu < sig * sig);
+  // the page must hold a rendered formula for every payoff of the catalogue
+  const page = require("fs").readFileSync(path.join(__dirname, "..", "sources", "template_full.html"), "utf8");
+  const bloc = (/const TEX_PAY = \{([\s\S]*?)\n    \};/.exec(page) || [, ""])[1];
+  const manque = ids.filter(id => !new RegExp("\\b" + id + ": tex\\(").test(bloc));
+  verifier("template: a formula (tex) for every payoff of the catalogue", !manque.length, manque.join(", "));
+}
+
+// ---- 6. payoff expressions ----
 {
   const ev = (txt, vars, x) => R.compiler(txt, vars)(x);
   verifier("parser: precedence 2 + 3 * 4 ^ 2 = 50", ev("2 + 3 * 4 ^ 2", ["S"], [0]) === 50);

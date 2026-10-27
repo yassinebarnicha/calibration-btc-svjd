@@ -1,4 +1,5 @@
-/* Static replication of a payoff f(S_T) with listed BTC options (Carr & Madan 1998).
+/* Static replication of a payoff f(S_T) with listed BTC options: the replication theorem of Carr & Madan
+   (1998), also called the spanning formula (Breeden & Litzenberger 1978, Bakshi & Madan 2000).
 
    Expansion around the future F of the maturity (Deribit options are European, settled on the index, which
    meets the future at expiry):
@@ -190,8 +191,75 @@
     return { puts, calls };
   }
 
+  // ---------------- catalogue of payoffs f(S_T) ----------------
+  /* Corridor variance: g'' = 1/S^2 on [L, U], 0 outside, g(F) = g'(F) = 0. Closed form of the Carr-Madan integrals
+     g(S) = int_L^min(F,U) (k - S)+ / k^2 dk + int_max(F,L)^U (S - k)+ / k^2 dk. */
+  function integralePuts(S, a, b) {            // int_a^b (k - S)+ / k^2 dk
+    if (!(b > a)) return 0;
+    const m = Math.max(a, S);
+    return m >= b ? 0 : Math.log(b / m) + S * (1 / b - 1 / m);
+  }
+  function integraleCalls(S, a, b) {           // int_a^b (S - k)+ / k^2 dk
+    if (!(b > a)) return 0;
+    const m = Math.min(b, S);
+    return m <= a ? 0 : S * (1 / a - 1 / m) - Math.log(m / a);
+  }
+  function corridor(S, F, L, U) {
+    return integralePuts(S, L, Math.min(F, U)) + integraleCalls(S, Math.max(F, L), U);
+  }
+
+  /* Each entry: id, group, name, the parameters it uses (K, K2, a), a default for a, and f(S, p) with
+     p = {F, K, K2, T, a}. variance: the value is a variance (shown as an implied vol); coude: the payoff has a kink
+     or a jump, where f'' is a Dirac mass (the f''(K) dK weights fail, the interpolation weights do not). */
+  const CATALOGUE = [
+    { id: "call", groupe: "Vanilla", nom: "Call (S − K)⁺", params: ["K"], coude: true,
+      f: (S, p) => Math.max(S - p.K, 0) },
+    { id: "put", groupe: "Vanilla", nom: "Put (K − S)⁺", params: ["K"], coude: true,
+      f: (S, p) => Math.max(p.K - S, 0) },
+    { id: "digcall", groupe: "Vanilla", nom: "Digital call: a $ if S > K", params: ["K", "a"], a: 1000, coude: true,
+      f: (S, p) => S > p.K ? p.a : 0 },
+    { id: "digput", groupe: "Vanilla", nom: "Digital put: a $ if S < K", params: ["K", "a"], a: 1000, coude: true,
+      f: (S, p) => S < p.K ? p.a : 0 },
+    { id: "spread", groupe: "Spreads and combinations", nom: "Call spread (S − K)⁺ − (S − K₂)⁺", params: ["K", "K2"],
+      coude: true, f: (S, p) => Math.max(S - p.K, 0) - Math.max(S - p.K2, 0) },
+    { id: "putspread", groupe: "Spreads and combinations", nom: "Put spread (K₂ − S)⁺ − (K − S)⁺", params: ["K", "K2"],
+      coude: true, f: (S, p) => Math.max(p.K2 - S, 0) - Math.max(p.K - S, 0) },
+    { id: "straddle", groupe: "Spreads and combinations", nom: "Straddle |S − K|", params: ["K"], coude: true,
+      f: (S, p) => Math.abs(S - p.K) },
+    { id: "strangle", groupe: "Spreads and combinations", nom: "Strangle (K − S)⁺ + (S − K₂)⁺", params: ["K", "K2"],
+      coude: true, f: (S, p) => Math.max(p.K - S, 0) + Math.max(S - p.K2, 0) },
+    { id: "butterfly", groupe: "Spreads and combinations", nom: "Butterfly K / (K + K₂)/2 / K₂", params: ["K", "K2"],
+      coude: true,
+      f: (S, p) => Math.max(S - p.K, 0) - 2 * Math.max(S - (p.K + p.K2) / 2, 0) + Math.max(S - p.K2, 0) },
+    { id: "riskrev", groupe: "Spreads and combinations", nom: "Risk reversal (S − K₂)⁺ − (K − S)⁺", params: ["K", "K2"],
+      coude: true, f: (S, p) => Math.max(S - p.K2, 0) - Math.max(p.K - S, 0) },
+    { id: "collar", groupe: "Spreads and combinations", nom: "Collar S + (K − S)⁺ − (S − K₂)⁺ (protected BTC)",
+      params: ["K", "K2"], coude: true, f: (S, p) => S + Math.max(p.K - S, 0) - Math.max(S - p.K2, 0) },
+    { id: "covered", groupe: "Spreads and combinations", nom: "Covered call S − (S − K₂)⁺", params: ["K2"], coude: true,
+      f: (S, p) => S - Math.max(S - p.K2, 0) },
+    { id: "variance", groupe: "Variance and volatility", nom: "Log contract: variance swap (model-free IV)", params: [],
+      variance: true, f: (S, p) => (2 / p.T) * ((S - p.F) / p.F - Math.log(S / p.F)) },
+    { id: "gammaswap", groupe: "Variance and volatility", nom: "Gamma swap (variance weighted by S / F)", params: [],
+      variance: true, f: (S, p) => (2 / p.T) * ((S / p.F) * Math.log(S / p.F) - S / p.F + 1) },
+    { id: "corridor", groupe: "Variance and volatility", nom: "Corridor variance swap on [K, K₂]", params: ["K", "K2"],
+      variance: true, f: (S, p) => (2 / p.T) * corridor(S, p.F, p.K, p.K2) },
+    { id: "quad", groupe: "Powers and logarithms", nom: "Quadratic (S − F)² / F", params: [],
+      f: (S, p) => (S - p.F) * (S - p.F) / p.F },
+    { id: "puissance", groupe: "Powers and logarithms", nom: "Power F · (S / F)^a", params: ["a"], a: 2,
+      f: (S, p) => p.F * Math.pow(S / p.F, p.a) },
+    { id: "powercall", groupe: "Powers and logarithms", nom: "Power call ((S − K)⁺)² / K", params: ["K"], coude: true,
+      f: (S, p) => Math.max(S - p.K, 0) ** 2 / p.K },
+    { id: "logS", groupe: "Powers and logarithms", nom: "Log payoff F · ln(S / F)", params: [],
+      f: (S, p) => p.F * Math.log(S / p.F) },
+    { id: "inverse", groupe: "Powers and logarithms", nom: "Inverse F² / S", params: [],
+      f: (S, p) => p.F * p.F / S },
+    { id: "expo", groupe: "Powers and logarithms", nom: "Exponential F · exp(a (S / F − 1))", params: ["a"], a: 1,
+      f: (S, p) => p.F * Math.exp(p.a * (S / p.F - 1)) },
+  ];
+  const parId = id => CATALOGUE.find(c => c.id === id) || null;
+
   const api = { compiler, derivee, derivee2, largeursQuadrature, selectionner, poids, valeurEcheance,
-                valeurAujourdhui, coutExecutable, grilleDense };
+                valeurAujourdhui, coutExecutable, grilleDense, CATALOGUE, parId, corridor };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Replication = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

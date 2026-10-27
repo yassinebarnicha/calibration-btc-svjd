@@ -20,8 +20,10 @@ browser: no computing server, nothing to install.**
 - **Exotics by Monte Carlo**: Asian, barrier, digital, lookback, American (Longstaff-Schwartz), composite payoffs or a
   free formula, with an automatic check against the exact Fourier price.
 - **GEX (gamma exposure)**: market makers' gamma exposure by strike, flip level, call / put walls.
-- **Static replication (Carr–Madan)**: any payoff at expiry (presets or a free formula) rebuilt with the future and the
-  options listed that day; cost at the mark, mid and bid/ask, value under the model and under the interpolated smile,
+- **Static replication (Carr–Madan replication theorem)**: any function of S_T at expiry, chosen from a list of 21
+  payoffs (vanilla and digital options, spreads, straddle, strangle, butterfly, risk reversal, collar, variance, gamma
+  and corridor variance swaps, powers, logarithm, inverse, exponential) or written as a free formula, rebuilt with the
+  future and the options listed that day; cost at the mark, mid and bid/ask, value under the model and under the interpolated smile,
   replication error; the log contract gives the model-free implied volatility (the method of the VIX and DVOL).
 - **Data**: 270+ days of Deribit option chains since January 2024 (open interest included), the futures history,
   529 calibrated parameter sets, and one more day every morning.
@@ -65,10 +67,12 @@ methods, the loss functions and the optimisers, and shows the results on real da
 - Time to expiry counted to the hour up to the 08:00 UTC expiry, which matters for maturities of a few days.
 - Pricer optimisations checked against the previous version on the 28 compositions, COS and PROJ: identical prices up
   to rounding noise (4.5·10⁻⁸ relative); the COS series is cut where its remainder is bounded below 10⁻¹⁰ $.
-- Static replication (`node tests/test_replication.js`, 28 checks): the weights and strike selection of
+- Static replication (`node tests/test_replication.js`, 38 checks): the weights and strike selection of
   TooManyOptions reproduced exactly; the interpolation weights equal the payoff at every listed strike (kinks
   included); a call is replicated by that single call; the model-free variance of flat Black-76 prices returns the
-  volatility (60.002 % for 60 %); executable cost = ask of the purchases − bid of the sales.
+  volatility (60.002 % for 60 %); executable cost = ask of the purchases − bid of the sales; every payoff of the
+  list is exact at the listed strikes, the option combinations cost exactly their options, the gamma swap and a wide
+  corridor price at σ², the closed-form corridor equals the log contract when the corridor is the whole line.
 
 ## Previews
 

@@ -4668,11 +4668,38 @@ async function __recupererDeribit(signale) {
     const sel = (opts, v) => { const x = document.createElement("select"); opts.forEach(([a, b]) => { const o = document.createElement("option"); o.value = a; o.textContent = b; x.append(o); }); x.value = v; return x; };
     const saisie = (type, v, ph) => { const x = document.createElement("input"); x.type = type; x.value = v; if (ph) x.placeholder = ph; return x; };
     const selMat = document.createElement("select");
-    const selPay = sel([["straddle", "Straddle |S − K|"], ["call", "Call (S − K)⁺ (check: one option)"],
-      ["spread", "Call spread (S − K)⁺ − (S − K₂)⁺"], ["variance", "Log contract: variance swap (model-free IV)"],
-      ["quad", "Quadratic (S − F)² / F"], ["puissance", "Power S² / F"], ["formule", "Custom formula"]], "variance");
+    // the payoffs of the list (sources/replication.js), grouped by family, then the free formula
+    const selPay = document.createElement("select");
+    {
+      const groupes = new Map();
+      RP.CATALOGUE.forEach(c => {
+        if (!groupes.has(c.groupe)) { const g = document.createElement("optgroup"); g.label = c.groupe; groupes.set(c.groupe, g); selPay.append(g); }
+        const o = document.createElement("option"); o.value = c.id; o.textContent = c.nom; groupes.get(c.groupe).append(o);
+      });
+      const g = document.createElement("optgroup"); g.label = "Any function of S";
+      const o = document.createElement("option"); o.value = "formule"; o.textContent = "Custom formula"; g.append(o); selPay.append(g);
+      selPay.value = "variance";
+    }
+    // the formula of each payoff (literal tex() calls: rendered by KaTeX at build time)
+    const TEX_PAY = {
+      call: tex("f(S)=(S-K)^+"), put: tex("f(S)=(K-S)^+"),
+      digcall: tex("f(S)=a\\,\\mathbf 1_{S>K}"), digput: tex("f(S)=a\\,\\mathbf 1_{S<K}"),
+      spread: tex("f(S)=(S-K)^+-(S-K_2)^+"), putspread: tex("f(S)=(K_2-S)^+-(K-S)^+"),
+      straddle: tex("f(S)=|S-K|"), strangle: tex("f(S)=(K-S)^+ + (S-K_2)^+"),
+      butterfly: tex("f(S)=(S-K)^+-2\\big(S-\\tfrac{K+K_2}{2}\\big)^+ + (S-K_2)^+"),
+      riskrev: tex("f(S)=(S-K_2)^+-(K-S)^+"), collar: tex("f(S)=S+(K-S)^+-(S-K_2)^+"),
+      covered: tex("f(S)=S-(S-K_2)^+"),
+      variance: tex("f(S)=\\tfrac{2}{T}\\big(\\tfrac{S-F}{F}-\\ln\\tfrac{S}{F}\\big),\\quad f''(K)=\\tfrac{2}{TK^2}"),
+      gammaswap: tex("f(S)=\\tfrac{2}{T}\\big(\\tfrac{S}{F}\\ln\\tfrac{S}{F}-\\tfrac{S}{F}+1\\big),\\quad f''(K)=\\tfrac{2}{TFK}"),
+      corridor: tex("f''(k)=\\tfrac{2}{Tk^2}\\,\\mathbf 1_{K\\le k\\le K_2},\\quad f(F)=f'(F)=0"),
+      quad: tex("f(S)=(S-F)^2/F"), puissance: tex("f(S)=F\\,(S/F)^a"), powercall: tex("f(S)=\\big((S-K)^+\\big)^2/K"),
+      logS: tex("f(S)=F\\ln(S/F)"), inverse: tex("f(S)=F^2/S"), expo: tex("f(S)=F\\,e^{a(S/F-1)}"),
+    };
     const inK = saisie("number", "", "auto: listed strike nearest F");
     const inK2 = saisie("number", "", "auto: listed strike nearest 1.15 F");
+    const inA = saisie("number", "", "");
+    inA.step = "any";
+    const formulePay = document.createElement("div"); formulePay.className = "hint";
     const inForm = saisie("text", "max(S - K, 0) + 0.5 * max(K - S, 0)");
     inForm.spellcheck = false;
     const selMeth = sel([["interp", "Exact at the listed strikes (interpolation)"], ["gamma", "f″(K)·ΔK (TooManyOptions)"]], "interp");
@@ -4681,17 +4708,23 @@ async function __recupererDeribit(signale) {
     inOi.min = "0"; inOi.step = "1";
     const chk = document.createElement("input"); chk.type = "checkbox"; chk.checked = true;
     const lChk = document.createElement("label"); lChk.className = "field rp-chk"; lChk.append(chk, document.createTextNode(" Two-sided quotes only (bid and ask)"));
-    const lForm = champ("Formula of S (also F, K, K2, T)", inForm);
+    const lForm = champ("Formula of S (also F, K, K2, T, a)", inForm);
+    const aideForm = document.createElement("div"); aideForm.className = "hint";
+    aideForm.textContent = "Any function of S: + − * / ^, max, min, abs, exp, sqrt, log (= ln), pow, sign, pi, e. "
+      + "Examples: F * sqrt(S / F), max(S - K, 0) ^ 2 / K, min(max(S - K, 0), K2 - K).";
+    const lK = champ("K ($)", inK), lK2 = champ("K₂ ($)", inK2), lA = champ("a", inA);
     const aide = document.createElement("div"); aide.className = "hint";
-    aide.innerHTML = "<b>Static replication</b> (Carr &amp; Madan): any payoff of the future at expiry is the future plus "
-      + "a strip of out-of-the-money options, " + tex("f(S_T)=f(F)+f'(F)(S_T-F)+\\int_0^F f''(K)(K-S_T)^+dK+\\int_F^\\infty f''(K)(S_T-K)^+dK")
+    aide.innerHTML = "<b>Carr–Madan replication theorem</b> (Carr &amp; Madan 1998; spanning formula of Breeden &amp; "
+      + "Litzenberger 1978 and Bakshi &amp; Madan 2000): any twice-differentiable payoff of the future at expiry is "
+      + "cash, the future and a strip of out-of-the-money options, " + tex("f(S_T)=f(F)+f'(F)(S_T-F)+\\int_0^F f''(K)(K-S_T)^+dK+\\int_F^\\infty f''(K)(S_T-K)^+dK")
+      + ", so by no arbitrage its price is " + tex("e^{-rT}f(F)+\\int_0^F f''(K)P(K)\\,dK+\\int_F^\\infty f''(K)C(K)\\,dK")
       + ". With the options listed this day the integral becomes a sum. <b>Exact at the listed strikes</b>: the weights "
       + "are the changes of slope of f between strikes, so the portfolio equals f at every listed strike, kinks "
       + "included; <b>f″(K)·ΔK</b> is the quadrature of TooManyOptions. Value today: "
       + tex("e^{-rT}f(F)+\\sum_K w_K\\,P_K") + " (the future costs nothing). The <b>log contract</b> "
       + tex("\\tfrac{2}{T}\\big(\\tfrac{S-F}{F}-\\ln\\tfrac{S}{F}\\big)") + " gives the model-free implied variance "
       + "(the method of the VIX and of Deribit's DVOL); with jumps it differs slightly from the expected variance.";
-    sec.append(champ("Maturity", selMat), champ("Payoff", selPay), champ("K ($)", inK), champ("K₂ ($)", inK2), lForm,
+    sec.append(champ("Maturity", selMat), champ("Payoff f(S_T)", selPay), formulePay, lK, lK2, lA, lForm, aideForm,
                champ("Weights", selMeth), champ("Option prices", selPrix), champ("Minimum open interest (BTC)", inOi), lChk, aide);
     pR.append(sec);
     const pos = ordre.indexOf("Settings") >= 0 ? ordre.indexOf("Settings") : ordre.length;
@@ -4755,19 +4788,17 @@ async function __recupererDeribit(signale) {
       const strikes = [...new Set(opts.map(o => o.K))].sort((a, b) => a - b);
       const proche = v => strikes.reduce((b, k) => Math.abs(k - v) < Math.abs(b - v) ? k : b, strikes[0]);
       const K = +inK.value > 0 ? +inK.value : proche(F), K2 = +inK2.value > 0 ? +inK2.value : proche(1.15 * F);
-      const preset = selPay.value;
+      const preset = selPay.value, def = RP.parId(preset) || {params: ["K", "K2", "a"], a: 1};
+      const a = inA.value.trim() !== "" && isFinite(+inA.value) ? +inA.value : (def.a !== undefined ? def.a : 1);
+      if (preset !== "formule" && def.params.includes("K") && def.params.includes("K2") && !(K2 > K))
+        return {err: "K₂ must be above K for this payoff."};
       let f;
-      if (preset === "straddle") f = s => Math.abs(s - K);
-      else if (preset === "call") f = s => Math.max(s - K, 0);
-      else if (preset === "spread") f = s => Math.max(s - K, 0) - Math.max(s - K2, 0);
-      else if (preset === "variance") f = s => (2 / T) * ((s - F) / F - Math.log(s / F));
-      else if (preset === "quad") f = s => (s - F) * (s - F) / F;
-      else if (preset === "puissance") f = s => s * s / F;
+      if (preset !== "formule") { const p = {F, K, K2, T, a}; f = s => def.f(s, p); }
       else {
         let g;
-        try { g = RP.compiler(inForm.value, ["S", "F", "K", "K2", "T"]); }
+        try { g = RP.compiler(inForm.value, ["S", "F", "K", "K2", "T", "a"]); }
         catch (e) { return {err: "Formula: " + e.message}; }
-        f = s => g([s, F, K, K2, T]);
+        f = s => g([s, F, K, K2, T, a]);
       }
       if (![0.5 * F, F, 1.5 * F].every(s => isFinite(f(s)))) return {err: "The payoff is not finite around F."};
       const choix = RP.selectionner(opts, F, {oiMin: Math.max(0, +inOi.value || 0), deuxCotes: chk.checked});
@@ -4798,7 +4829,7 @@ async function __recupererDeribit(signale) {
       const lignes = [];
       port.puts.forEach(o => lignes.push({K: o.K, c: false, w: o.w, px: prixMkt(o.K, false), oi: cote(o.K, false).oi}));
       port.calls.forEach(o => lignes.push({K: o.K, c: true, w: o.w, px: prixMkt(o.K, true), oi: cote(o.K, true).oi}));
-      return {F, T, r, df, sigAtm, sd, K, K2, preset, port, vMkt, ex, vModListe, vModDense, vSmileDense, Sg, cible, rep,
+      return {F, T, r, df, sigAtm, sd, K, K2, a, preset, varSw: !!def.variance, coude: !!def.coude, port, vMkt, ex, vModListe, vModDense, vSmileDense, Sg, cible, rep,
               errMax, echelle, lignes, nOpt: lignes.filter(l => Math.abs(l.w) > 1e-12).length, nListe: opts.length,
               kMin: putsK[0], kMax: callsK[callsK.length - 1]};
     }
@@ -4813,7 +4844,7 @@ async function __recupererDeribit(signale) {
       const X = s => g + (Math.log(s) - lx) / (lxx - lx) * (W - g - d), Y = v => haut + (y1 - v) / (y1 - y0) * (H - haut - bas);
       const ligne = (ys, coul, l) => `<polyline fill="none" stroke="${coul}" stroke-width="${l}" points="${x.Sg.map((s, i) => isFinite(ys[i]) ? X(s).toFixed(1) + "," + Y(Math.max(y0, Math.min(y1, ys[i]))).toFixed(1) : "").join(" ")}"/>`;
       const zone = `<rect x="${X(Math.max(x.kMin, x.Sg[0])).toFixed(1)}" y="${haut}" width="${Math.max(0, X(Math.min(x.kMax, x.Sg[x.Sg.length - 1])) - X(Math.max(x.kMin, x.Sg[0]))).toFixed(1)}" height="${H - haut - bas}" fill="var(--grid)" opacity=".35"/>`;
-      const axe = [y0 + pad, (y0 + y1) / 2, y1 - pad].map(v => `<line x1="${g}" x2="${W - d}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="var(--grid)"/><text x="${g - 6}" y="${(Y(v) + 3.5).toFixed(1)}" text-anchor="end">${x.preset === "variance" ? v.toFixed(2) : fUSD(v)}</text>`).join("");
+      const axe = [y0 + pad, (y0 + y1) / 2, y1 - pad].map(v => `<line x1="${g}" x2="${W - d}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="var(--grid)"/><text x="${g - 6}" y="${(Y(v) + 3.5).toFixed(1)}" text-anchor="end">${x.varSw ? v.toFixed(2) : fUSD(v)}</text>`).join("");
       const ticks = [[x.Sg[0], "start"], [x.F, "middle"], [x.Sg[x.Sg.length - 1], "end"]].map(([s, ancre]) => `<text x="${X(s).toFixed(1)}" y="${H - 9}" text-anchor="${ancre}">${s === x.F ? "F = " : ""}${fK(s)} $</text>`).join("");
       const Fl = `<line x1="${X(x.F).toFixed(1)}" x2="${X(x.F).toFixed(1)}" y1="${haut}" y2="${H - bas}" stroke="var(--ink2)" stroke-dasharray="3 3"/>`;
       return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Payoff at expiry: target and replication"><text x="${g}" y="14" class="t">Payoff at expiry (log scale of S): target (white) and replicating portfolio (blue); shaded: listed strikes used</text>`
@@ -4826,7 +4857,7 @@ async function __recupererDeribit(signale) {
       const lx = Math.log(x.Sg[0]), lxx = Math.log(x.Sg[x.Sg.length - 1]);
       const X = s => g + (Math.log(s) - lx) / (lxx - lx) * (W - g - d), Y = v => haut + (m - v) / (2 * m) * (H - haut - bas);
       const pts = x.Sg.map((s, i) => isFinite(e[i]) ? X(s).toFixed(1) + "," + Y(e[i]).toFixed(1) : "").join(" ");
-      const axe = [m, 0, -m].map(v => `<line x1="${g}" x2="${W - d}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="${v === 0 ? "var(--line)" : "var(--grid)"}"/><text x="${g - 6}" y="${(Y(v) + 3.5).toFixed(1)}" text-anchor="end">${x.preset === "variance" ? v.toExponential(1) : fUSD(v)}</text>`).join("");
+      const axe = [m, 0, -m].map(v => `<line x1="${g}" x2="${W - d}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="${v === 0 ? "var(--line)" : "var(--grid)"}"/><text x="${g - 6}" y="${(Y(v) + 3.5).toFixed(1)}" text-anchor="end">${x.varSw ? v.toExponential(1) : fUSD(v)}</text>`).join("");
       const marques = x.lignes.filter(l => Math.abs(l.w) > 1e-12 && l.K >= x.Sg[0] && l.K <= x.Sg[x.Sg.length - 1])
         .map(l => `<line x1="${X(l.K).toFixed(1)}" x2="${X(l.K).toFixed(1)}" y1="${H - bas}" y2="${H - bas + 5}" stroke="${l.c ? "var(--accent)" : "var(--model)"}"/>`).join("");
       return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Replication error at expiry"><text x="${g}" y="14" class="t">Replication error at expiry (portfolio − target); ticks: strikes used (blue calls, orange puts)</text>${axe}`
@@ -4849,7 +4880,7 @@ async function __recupererDeribit(signale) {
     function tableau(x) {
       const L = x.lignes.filter(l => Math.abs(l.w) > 1e-12);
       const lig = (a, b, c, d2, e) => `<tr><td class="g">${a}</td><td>${b}</td><td>${c}</td><td>${d2}</td><td>${e}</td></tr>`;
-      const unite = x.preset === "variance" ? "" : " $";
+      const unite = x.varSw ? "" : " $";
       let h = `<table class="gr"><thead><tr><th class="g">Leg</th><th>Strike</th><th>Weight</th><th>Price used</th><th>Value today</th></tr></thead><tbody>`;
       h += lig("Cash at expiry f(F)", "—", x.port.cash.toPrecision(6), "exp(−rT) = " + x.df.toFixed(5), (x.df * x.port.cash).toPrecision(6) + unite);
       h += lig("Future (BTC)", fK(x.F), x.port.futures.toPrecision(6), "0 (no cost)", "0");
@@ -4860,12 +4891,20 @@ async function __recupererDeribit(signale) {
 
     function remplir() {
       majMats();
-      lForm.hidden = selPay.value !== "formule";
+      const def = RP.parId(selPay.value), libre = !def;
+      lForm.hidden = aideForm.hidden = !libre;
+      lK.hidden = !libre && !def.params.includes("K");
+      lK2.hidden = !libre && !def.params.includes("K2");
+      lA.hidden = !libre && !def.params.includes("a");
+      lA.querySelector("span").textContent = /^dig/.test(selPay.value) ? "a: amount paid ($)" : "a (exponent / scale)";
+      inA.placeholder = "default " + (def && def.a !== undefined ? def.a : 1);
+      formulePay.innerHTML = def ? TEX_PAY[def.id] || "" : "";
+      formulePay.hidden = !def;
       let x;
       try { x = calculer(); } catch (e) { x = {err: e.message}; }
       if (x.err) { tete.textContent = x.err; tuiles.innerHTML = ""; g1.innerHTML = ""; g2.innerHTML = ""; g3.innerHTML = ""; tab.innerHTML = ""; note.textContent = ""; return; }
-      const varSw = x.preset === "variance";
-      tete.innerHTML = `<b>${fdate(D.jour)}</b> · maturity ${D.mats[+selMat.value].date} (T = ${(x.T * 365).toFixed(1)} d) · F = ${fK(x.F)} $ · `
+      const varSw = x.varSw;
+      tete.innerHTML = `<b>Carr–Madan replication theorem</b> · <b>${fdate(D.jour)}</b> · maturity ${D.mats[+selMat.value].date} (T = ${(x.T * 365).toFixed(1)} d) · F = ${fK(x.F)} $ · `
         + `${x.nOpt} options used out of ${x.nListe} listed · ATM IV ${isFinite(x.sigAtm) ? (100 * x.sigAtm).toFixed(1) + " %" : "—"} · model ${nomModele()}`;
       const t = (l, v, dd) => `<div><div class="l">${l}</div><div class="v">${v}</div><div class="d">${dd}</div></div>`;
       const iv = v => isFinite(v) && v > 0 ? (100 * Math.sqrt(v / x.df)).toFixed(2) + " %" : "—";
@@ -4889,11 +4928,13 @@ async function __recupererDeribit(signale) {
       note.textContent = "Listed vs dense strikes measures the cost of having only the listed strikes; market vs model "
         + "measures how far the active model is from the market for this payoff. Weights are numbers of 1-BTC options "
         + "(each pays (S − K)⁺ or (K − S)⁺ in dollars at expiry); the future position is in BTC."
-        + (selMeth.value === "gamma" && x.echelle > 0 && x.errMax > 0.05 * x.echelle
-           ? " Warning: the f″(K)·ΔK weights assume a smooth payoff; with a kink (call, straddle, spread) f″ is a "
-             + "Dirac mass and they fail: use the interpolation weights, exact at the listed strikes." : "");
+        + (selMeth.value === "gamma" && (x.coude || (x.echelle > 0 && x.errMax > 0.05 * x.echelle))
+           ? " Warning: the f″(K)·ΔK weights assume a smooth payoff; with a kink or a jump (calls, spreads, digitals) "
+             + "f″ is a Dirac mass and they fail: use the interpolation weights, exact at the listed strikes." : "")
+        + (/^dig/.test(x.preset) ? " A digital jumps at K: with listed strikes only, the static hedge is a call "
+             + "spread, so the error at expiry sits between K and its neighbouring strike." : "");
     }
-    [selMat, selPay, inK, inK2, inForm, selMeth, selPrix, inOi, chk].forEach(e => e.addEventListener("change", remplir));
+    [selMat, selPay, inK, inK2, inA, inForm, selMeth, selPrix, inOi, chk].forEach(e => e.addEventListener("change", remplir));
     inForm.addEventListener("keydown", e => { if (e.key === "Enter") remplir(); });
     vueRep.__refaire = remplir;
     let derniereRep = 0;
