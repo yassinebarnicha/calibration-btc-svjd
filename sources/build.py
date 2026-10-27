@@ -88,6 +88,7 @@ def main(argv=None):
     html = maths.rendre_page(html, "katex/katex.min.css")
     html = html.replace("__DESIGN_CSS__", (ICI / "design.css").read_text(encoding="utf-8"))
     html = html.replace("__PRICER__", (ICI / "pricer.js").read_text(encoding="utf-8"))
+    html = html.replace("__REPLICATION__", (ICI / "replication.js").read_text(encoding="utf-8"))
     html = html.replace("__FUTURES__", futures_json())
     html = html.replace("__DATA__", jour_json(jour0))
     html = html.replace("__JOURS__", json.dumps(index))

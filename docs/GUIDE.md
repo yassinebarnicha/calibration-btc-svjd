@@ -89,7 +89,17 @@ Back to the [README](../README.md) · theory in the [report](../REPORT.pdf).
     gamma), call wall, put wall, calls/puts and open interest; charts: net GEX by strike and total GEX against the level of
     the future (−20 % to +20 %). The open interest comes from the Deribit snapshots (column `oi` of the days; missing on
     the two reconstructed days).
-11. **Optimiser** (Feller enforced or not, within the slider bounds, locked parameters fixed):
+11. **Replication — static replication of a payoff** (*Replication* tab; engine in `sources/replication.js`, tests in
+    `tests/test_replication.js`): a payoff f(S_T) at the chosen maturity is rebuilt as f(F) + f'(F)(S_T − F) plus
+    out-of-the-money puts below the future F and calls above it (Carr & Madan). Presets: straddle, call (check: one
+    option), call spread, log contract (variance swap), quadratic, power, or a free formula of S, F, K, K2, T (parsed,
+    never evaluated as code). Weights: *exact at the listed strikes* (change of slope of f between strikes: the
+    portfolio equals f at every listed strike, kinks included) or *f''(K)·ΔK* (the quadrature of TooManyOptions, for
+    smooth payoffs only). Filters: minimum open interest, two-sided quotes. Tiles: cost at the mark or mid, executable
+    cost (buy at the ask, sell at the bid), the same payoff with dense strikes under the interpolated smile and under
+    the model, the listed replica under the model, maximum error at expiry; for the log contract, the model-free
+    implied volatility. Charts: target and replica at expiry, error, weights by strike; table of the legs.
+12. **Optimiser** (Feller enforced or not, within the slider bounds, locked parameters fixed):
 
    | Method | Nature | When to choose it |
    |---|---|---|

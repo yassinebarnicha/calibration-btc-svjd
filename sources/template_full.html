@@ -301,6 +301,9 @@ aside.gauche{--marge-haut:14px}
 .gx-case text{font:10.5px var(--mono);fill:var(--muted)}
 .gx-case text.t{font:600 11.5px var(--sans);fill:var(--ink2)}
 .gx-case rect:hover{opacity:.75}
+.vue-rep .gx-case{margin-top:8px}
+.rp-tab{overflow-x:auto;max-height:420px;overflow-y:auto}
+.rp-chk{display:flex;align-items:center;gap:6px}
 /* ---- onglet Surface de vol : vue 3D dans la zone centrale ---- */
 :root{--surf-bas:#E4EEF4;--surf-haut:#0F3550}
 :root[data-theme="dark"]{--surf-bas:#16303F;--surf-haut:#9CC8E2}
@@ -855,6 +858,7 @@ date,put,80000,83757,,0.06,</pre>
 
 <script src="jeux.js"></script>
 <script>__PRICER__</script>
+<script>__REPLICATION__</script>
 <script>
 // un jour = format colonnes (jours/<date>.js) ; la page travaille en lignes
 function depuisColonnes(d) {
@@ -2721,6 +2725,7 @@ function rendre() {
   if (window.__majGrecques) window.__majGrecques();     // onglet Grecques, s'il est affiche
   if (window.__majSurface) window.__majSurface();       // onglet Surface de vol, s'il est affiche
   if (window.__majGex) window.__majGex();               // onglet GEX, s'il est affiche
+  if (window.__majRep) window.__majRep();               // onglet Replication, s'il est affiche
 }
 
 // ---- pricer a la demande : saisie et fichier CSV --------------------------------------------------
@@ -4636,6 +4641,269 @@ async function __recupererDeribit(signale) {
     };
   }
 
+  /* =================== l'onglet Replication (Carr-Madan, statique) ===================
+     Un payoff f(S_T) a l'echeance choisie, reproduit avec le future de l'echeance et les options cotees
+     ce jour-la (sources/replication.js). Cout au mark ou au mid, cout executable (achats a l'ask, ventes au
+     bid), valeur du meme payoff sous le modele actif et sous le smile interpole (strikes denses), erreur de
+     replication a l'echeance. Le contrat log donne la variance implicite sans modele (indice de type DVOL). */
+  let vueRep = null, iRep = -1;
+  {
+    const RP = window.Replication;
+    vueRep = document.createElement("div");
+    vueRep.className = "vue-futures vue-gex vue-rep"; vueRep.hidden = true;
+    const tete = document.createElement("div"); tete.className = "gr-tete";
+    const tuiles = document.createElement("div"); tuiles.className = "gx-tuiles";
+    const g1 = document.createElement("div"); g1.className = "gx-case";
+    const g2 = document.createElement("div"); g2.className = "gx-case";
+    const g3 = document.createElement("div"); g3.className = "gx-case";
+    const tab = document.createElement("div"); tab.className = "gx-case rp-tab";
+    const note = document.createElement("div"); note.className = "hint";
+    vueRep.append(tete, tuiles, g1, g2, g3, tab, note);
+    espace.insertBefore(vueRep, col);
+
+    const pR = document.createElement("div"); pR.className = "panneau";
+    const sec = document.createElement("div"); sec.className = "sec";
+    const champ = (txt, el) => { const l = document.createElement("label"); l.className = "field";
+      const e = document.createElement("span"); e.textContent = txt; l.append(e, el); return l; };
+    const sel = (opts, v) => { const x = document.createElement("select"); opts.forEach(([a, b]) => { const o = document.createElement("option"); o.value = a; o.textContent = b; x.append(o); }); x.value = v; return x; };
+    const saisie = (type, v, ph) => { const x = document.createElement("input"); x.type = type; x.value = v; if (ph) x.placeholder = ph; return x; };
+    const selMat = document.createElement("select");
+    const selPay = sel([["straddle", "Straddle |S − K|"], ["call", "Call (S − K)⁺ (check: one option)"],
+      ["spread", "Call spread (S − K)⁺ − (S − K₂)⁺"], ["variance", "Log contract: variance swap (model-free IV)"],
+      ["quad", "Quadratic (S − F)² / F"], ["puissance", "Power S² / F"], ["formule", "Custom formula"]], "variance");
+    const inK = saisie("number", "", "auto: listed strike nearest F");
+    const inK2 = saisie("number", "", "auto: listed strike nearest 1.15 F");
+    const inForm = saisie("text", "max(S - K, 0) + 0.5 * max(K - S, 0)");
+    inForm.spellcheck = false;
+    const selMeth = sel([["interp", "Exact at the listed strikes (interpolation)"], ["gamma", "f″(K)·ΔK (TooManyOptions)"]], "interp");
+    const selPrix = sel([["mark", "Mark"], ["mid", "Mid (bid / ask)"]], "mark");
+    const inOi = saisie("number", "0", "BTC");
+    inOi.min = "0"; inOi.step = "1";
+    const chk = document.createElement("input"); chk.type = "checkbox"; chk.checked = true;
+    const lChk = document.createElement("label"); lChk.className = "field rp-chk"; lChk.append(chk, document.createTextNode(" Two-sided quotes only (bid and ask)"));
+    const lForm = champ("Formula of S (also F, K, K2, T)", inForm);
+    const aide = document.createElement("div"); aide.className = "hint";
+    aide.innerHTML = "<b>Static replication</b> (Carr &amp; Madan): any payoff of the future at expiry is the future plus "
+      + "a strip of out-of-the-money options, " + tex("f(S_T)=f(F)+f'(F)(S_T-F)+\\int_0^F f''(K)(K-S_T)^+dK+\\int_F^\\infty f''(K)(S_T-K)^+dK")
+      + ". With the options listed this day the integral becomes a sum. <b>Exact at the listed strikes</b>: the weights "
+      + "are the changes of slope of f between strikes, so the portfolio equals f at every listed strike, kinks "
+      + "included; <b>f″(K)·ΔK</b> is the quadrature of TooManyOptions. Value today: "
+      + tex("e^{-rT}f(F)+\\sum_K w_K\\,P_K") + " (the future costs nothing). The <b>log contract</b> "
+      + tex("\\tfrac{2}{T}\\big(\\tfrac{S-F}{F}-\\ln\\tfrac{S}{F}\\big)") + " gives the model-free implied variance "
+      + "(the method of the VIX and of Deribit's DVOL); with jumps it differs slightly from the expected variance.";
+    sec.append(champ("Maturity", selMat), champ("Payoff", selPay), champ("K ($)", inK), champ("K₂ ($)", inK2), lForm,
+               champ("Weights", selMeth), champ("Option prices", selPrix), champ("Minimum open interest (BTC)", inOi), lChk, aide);
+    pR.append(sec);
+    const pos = ordre.indexOf("Settings") >= 0 ? ordre.indexOf("Settings") : ordre.length;
+    col.append(pR);
+    ordre.splice(pos, 0, "Replication"); etiquettes.splice(pos, 0, "Replication"); panneaux.splice(pos, 0, pR);
+    if (vueFut && iFut >= pos) iFut++;
+    if (vueGr && iGr >= pos) iGr++;
+    if (vueSurf && iSurf >= pos) iSurf++;
+    if (vueGex && iGex >= pos) iGex++;
+    iRep = pos;
+
+    const fUSD = v => !isFinite(v) ? "—" : Math.abs(v) < 0.005 ? "0 $" : (v < 0 ? "−" : "") + Math.abs(v).toLocaleString("en-US", {maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 2}) + " $";
+    const fK = K => Math.round(K).toLocaleString("en-US");
+    let jourMats = null;
+    function majMats() {
+      if (jourMats === D.jour && selMat.options.length) return;
+      const avant = selMat.value;
+      selMat.innerHTML = "";
+      let defaut = null, ecart = Infinity;
+      D.mats.forEach((M, i) => {
+        if (!D.rows.some(r => r.m === i && r.T > 0)) return;
+        const o = document.createElement("option");
+        o.value = String(i);
+        o.textContent = (D.multi ? (M.jdate || "") + " → " : "") + M.date + " (" + M.jours + " d)";
+        selMat.append(o);
+        if (Math.abs(M.jours - 30) < ecart) { ecart = Math.abs(M.jours - 30); defaut = String(i); }
+      });
+      selMat.value = [...selMat.options].some(o => o.value === avant) && jourMats === D.jour ? avant : defaut;
+      jourMats = D.jour;
+    }
+
+    function smile(rowsM, F) {
+      const pts = rowsM.filter(r => r.iv_mark > 0 && r.iv_mark < 5 && (r.c ? r.K >= F : r.K < F))
+        .map(r => [Math.log(r.K / F), r.iv_mark]).sort((a, b) => a[0] - b[0]);
+      return x => {
+        if (!pts.length) return NaN;
+        if (x <= pts[0][0]) return pts[0][1];
+        if (x >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+        let j = 1; while (pts[j][0] < x) j++;
+        const [x0, y0] = pts[j - 1], [x1, y1] = pts[j];
+        return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+      };
+    }
+    const prixModele = (Ks, c, F, T, r, jour) => {
+      if (!Ks.length) return [];
+      const pj = jeuDuJour(S.p, jour);
+      return PD_PRICER.f(Ks.map(K => ({F, K, r, c, T})), T, {var: BV().faire(pj), ...BS().faire(pj)}, PD_PRICER.N, PD_PRICER.L);
+    };
+    const somme = (port, df, prix) => RP.valeurAujourdhui(port, df, prix);
+
+    function calculer() {
+      const m = +selMat.value;
+      const rowsM = D.rows.filter(r => r.m === m && r.T > 0 && r.F > 0);
+      if (!rowsM.length) return {err: "No option for this maturity."};
+      const F = rowsM[0].F, T = rowsM[0].T, r = rowsM[0].r, X = rowsM[0].X, df = Math.exp(-r * T);
+      const jour = (D.mats[m] && D.mats[m].jour) || D.jour;
+      const opts = rowsM.map(o => ({K: o.K, c: !!o.c, oi: o.oi, bid: o.bid * X, ask: o.ask * X, mark: o.mark * X}));
+      const parCle = new Map(opts.map(o => [o.K + (o.c ? "C" : "P"), o]));
+      const cote = (K, c) => parCle.get(K + (c ? "C" : "P"));
+      const sm = smile(rowsM, F), sigAtm = sm(0), sd = (isFinite(sigAtm) ? sigAtm : 0.6) * Math.sqrt(T);
+      const strikes = [...new Set(opts.map(o => o.K))].sort((a, b) => a - b);
+      const proche = v => strikes.reduce((b, k) => Math.abs(k - v) < Math.abs(b - v) ? k : b, strikes[0]);
+      const K = +inK.value > 0 ? +inK.value : proche(F), K2 = +inK2.value > 0 ? +inK2.value : proche(1.15 * F);
+      const preset = selPay.value;
+      let f;
+      if (preset === "straddle") f = s => Math.abs(s - K);
+      else if (preset === "call") f = s => Math.max(s - K, 0);
+      else if (preset === "spread") f = s => Math.max(s - K, 0) - Math.max(s - K2, 0);
+      else if (preset === "variance") f = s => (2 / T) * ((s - F) / F - Math.log(s / F));
+      else if (preset === "quad") f = s => (s - F) * (s - F) / F;
+      else if (preset === "puissance") f = s => s * s / F;
+      else {
+        let g;
+        try { g = RP.compiler(inForm.value, ["S", "F", "K", "K2", "T"]); }
+        catch (e) { return {err: "Formula: " + e.message}; }
+        f = s => g([s, F, K, K2, T]);
+      }
+      if (![0.5 * F, F, 1.5 * F].every(s => isFinite(f(s)))) return {err: "The payoff is not finite around F."};
+      const choix = RP.selectionner(opts, F, {oiMin: Math.max(0, +inOi.value || 0), deuxCotes: chk.checked});
+      if (!choix.puts.length || !choix.calls.length) return {err: "Not enough options left after the filters (at least one put below F and one call above F)."};
+      let port;
+      try { port = RP.poids(f, F, choix.puts.map(o => o.K), choix.calls.map(o => o.K), selMeth.value); }
+      catch (e) { return {err: e.message}; }
+      const prixMkt = (k, c) => { const o = cote(k, c); return selPrix.value === "mid" && o.bid > 0 && o.ask > 0 ? (o.bid + o.ask) / 2 : o.mark; };
+      const vMkt = somme(port, df, prixMkt);
+      const ex = RP.coutExecutable(port, df, cote);
+      // modele : la replique cotee, puis le payoff lui-meme (strikes denses : l'integrale de Carr-Madan)
+      const putsK = port.puts.map(o => o.K), callsK = port.calls.map(o => o.K);
+      const mp = prixModele(putsK, false, F, T, r, jour), mc = prixModele(callsK, true, F, T, r, jour);
+      const mod = new Map(); putsK.forEach((k, i) => mod.set(k + "P", mp[i])); callsK.forEach((k, i) => mod.set(k + "C", mc[i]));
+      const vModListe = somme(port, df, (k, c) => mod.get(k + (c ? "C" : "P")));
+      const gd = RP.grilleDense(F, Math.max(6 * sd, 0.3), 600);
+      const portD = RP.poids(f, F, gd.puts, gd.calls, "interp");
+      const dp = prixModele(gd.puts, false, F, T, r, jour), dc = prixModele(gd.calls, true, F, T, r, jour);
+      const dense = new Map(); gd.puts.forEach((k, i) => dense.set(k + "P", dp[i])); gd.calls.forEach((k, i) => dense.set(k + "C", dc[i]));
+      const vModDense = somme(portD, df, (k, c) => dense.get(k + (c ? "C" : "P")));
+      const vSmileDense = somme(portD, df, (k, c) => BP.b76(F, k, T, r, sm(Math.log(k / F)), c));
+      // erreur a l'echeance sur F exp(+-3 sd), et la courbe sur F exp(+-4 sd)
+      const lo = F * Math.exp(-4 * sd), hi = F * Math.exp(4 * sd);
+      const Sg = Array.from({length: 401}, (_, i) => lo * Math.pow(hi / lo, i / 400));
+      const cible = Sg.map(f), rep = RP.valeurEcheance(port, F, Sg);
+      let errMax = 0, echelle = 0;
+      Sg.forEach((s, i) => { if (Math.abs(Math.log(s / F)) <= 3 * sd) { errMax = Math.max(errMax, Math.abs(rep[i] - cible[i])); echelle = Math.max(echelle, Math.abs(cible[i])); } });
+      const lignes = [];
+      port.puts.forEach(o => lignes.push({K: o.K, c: false, w: o.w, px: prixMkt(o.K, false), oi: cote(o.K, false).oi}));
+      port.calls.forEach(o => lignes.push({K: o.K, c: true, w: o.w, px: prixMkt(o.K, true), oi: cote(o.K, true).oi}));
+      return {F, T, r, df, sigAtm, sd, K, K2, preset, port, vMkt, ex, vModListe, vModDense, vSmileDense, Sg, cible, rep,
+              errMax, echelle, lignes, nOpt: lignes.filter(l => Math.abs(l.w) > 1e-12).length, nListe: opts.length,
+              kMin: putsK[0], kMax: callsK[callsK.length - 1]};
+    }
+
+    function courbes(x) {
+      const W = 920, H = 250, g = 70, d = 12, haut = 26, bas = 28;
+      const vals = x.cible.concat(x.rep).filter(isFinite);
+      let y0 = Math.min(...vals), y1 = Math.max(...vals);
+      if (y1 - y0 < 1e-12) { y0 -= 1; y1 += 1; }
+      const pad = 0.06 * (y1 - y0); y0 -= pad; y1 += pad;
+      const lx = Math.log(x.Sg[0]), lxx = Math.log(x.Sg[x.Sg.length - 1]);
+      const X = s => g + (Math.log(s) - lx) / (lxx - lx) * (W - g - d), Y = v => haut + (y1 - v) / (y1 - y0) * (H - haut - bas);
+      const ligne = (ys, coul, l) => `<polyline fill="none" stroke="${coul}" stroke-width="${l}" points="${x.Sg.map((s, i) => isFinite(ys[i]) ? X(s).toFixed(1) + "," + Y(Math.max(y0, Math.min(y1, ys[i]))).toFixed(1) : "").join(" ")}"/>`;
+      const zone = `<rect x="${X(Math.max(x.kMin, x.Sg[0])).toFixed(1)}" y="${haut}" width="${Math.max(0, X(Math.min(x.kMax, x.Sg[x.Sg.length - 1])) - X(Math.max(x.kMin, x.Sg[0]))).toFixed(1)}" height="${H - haut - bas}" fill="var(--grid)" opacity=".35"/>`;
+      const axe = [y0 + pad, (y0 + y1) / 2, y1 - pad].map(v => `<line x1="${g}" x2="${W - d}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="var(--grid)"/><text x="${g - 6}" y="${(Y(v) + 3.5).toFixed(1)}" text-anchor="end">${x.preset === "variance" ? v.toFixed(2) : fUSD(v)}</text>`).join("");
+      const ticks = [[x.Sg[0], "start"], [x.F, "middle"], [x.Sg[x.Sg.length - 1], "end"]].map(([s, ancre]) => `<text x="${X(s).toFixed(1)}" y="${H - 9}" text-anchor="${ancre}">${s === x.F ? "F = " : ""}${fK(s)} $</text>`).join("");
+      const Fl = `<line x1="${X(x.F).toFixed(1)}" x2="${X(x.F).toFixed(1)}" y1="${haut}" y2="${H - bas}" stroke="var(--ink2)" stroke-dasharray="3 3"/>`;
+      return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Payoff at expiry: target and replication"><text x="${g}" y="14" class="t">Payoff at expiry (log scale of S): target (white) and replicating portfolio (blue); shaded: listed strikes used</text>`
+        + zone + axe + Fl + ligne(x.cible, "var(--ink)", 2.2) + ligne(x.rep, "var(--accent)", 1.6) + ticks + `</svg>`;
+    }
+    function erreurs(x) {
+      const W = 920, H = 170, g = 70, d = 12, haut = 24, bas = 24;
+      const e = x.rep.map((v, i) => v - x.cible[i]);
+      const m = Math.max(...e.filter(isFinite).map(Math.abs), 1e-12);
+      const lx = Math.log(x.Sg[0]), lxx = Math.log(x.Sg[x.Sg.length - 1]);
+      const X = s => g + (Math.log(s) - lx) / (lxx - lx) * (W - g - d), Y = v => haut + (m - v) / (2 * m) * (H - haut - bas);
+      const pts = x.Sg.map((s, i) => isFinite(e[i]) ? X(s).toFixed(1) + "," + Y(e[i]).toFixed(1) : "").join(" ");
+      const axe = [m, 0, -m].map(v => `<line x1="${g}" x2="${W - d}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="${v === 0 ? "var(--line)" : "var(--grid)"}"/><text x="${g - 6}" y="${(Y(v) + 3.5).toFixed(1)}" text-anchor="end">${x.preset === "variance" ? v.toExponential(1) : fUSD(v)}</text>`).join("");
+      const marques = x.lignes.filter(l => Math.abs(l.w) > 1e-12 && l.K >= x.Sg[0] && l.K <= x.Sg[x.Sg.length - 1])
+        .map(l => `<line x1="${X(l.K).toFixed(1)}" x2="${X(l.K).toFixed(1)}" y1="${H - bas}" y2="${H - bas + 5}" stroke="${l.c ? "var(--accent)" : "var(--model)"}"/>`).join("");
+      return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Replication error at expiry"><text x="${g}" y="14" class="t">Replication error at expiry (portfolio − target); ticks: strikes used (blue calls, orange puts)</text>${axe}`
+        + `<polyline fill="none" stroke="var(--model)" stroke-width="1.6" points="${pts}"/>${marques}</svg>`;
+    }
+    function poidsSvg(x) {
+      const L = x.lignes.filter(l => Math.abs(l.w) > 1e-12);
+      if (!L.length) return "";
+      const W = 920, H = 200, g = 70, d = 12, haut = 24, bas = 26;
+      const k0 = Math.min(...L.map(l => l.K)), k1 = Math.max(...L.map(l => l.K)) > k0 ? Math.max(...L.map(l => l.K)) : k0 + 1;
+      const vmax = Math.max(...L.map(l => Math.abs(l.w)));
+      const X = K => g + (Math.log(K) - Math.log(k0)) / (Math.log(k1) - Math.log(k0) || 1) * (W - g - d), Y = v => haut + (vmax - v) / (2 * vmax) * (H - haut - bas);
+      const larg = Math.max(2, Math.min(12, (W - g - d) / L.length * 0.6));
+      const bars = L.map(l => { const ya = Y(0), yb = Y(l.w);
+        return `<rect x="${(X(l.K) - larg / 2).toFixed(1)}" y="${Math.min(ya, yb).toFixed(1)}" width="${larg.toFixed(1)}" height="${Math.max(0.5, Math.abs(yb - ya)).toFixed(1)}" fill="${l.c ? "var(--accent)" : "var(--model)"}"><title>${l.c ? "Call" : "Put"} ${fK(l.K)} $ · weight ${l.w.toPrecision(4)}</title></rect>`; }).join("");
+      const axe = [vmax, 0, -vmax].map(v => `<line x1="${g}" x2="${W - d}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="${v === 0 ? "var(--line)" : "var(--grid)"}"/><text x="${g - 6}" y="${(Y(v) + 3.5).toFixed(1)}" text-anchor="end">${v.toPrecision(2)}</text>`).join("");
+      return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Option weights by strike"><text x="${g}" y="14" class="t">Weights by strike (options of 1 BTC; negative = sold); blue calls, orange puts</text>${axe}${bars}`
+        + `<text x="${g}" y="${H - 8}">${fK(k0)} $</text><text x="${W - d}" y="${H - 8}" text-anchor="end">${fK(k1)} $</text></svg>`;
+    }
+    function tableau(x) {
+      const L = x.lignes.filter(l => Math.abs(l.w) > 1e-12);
+      const lig = (a, b, c, d2, e) => `<tr><td class="g">${a}</td><td>${b}</td><td>${c}</td><td>${d2}</td><td>${e}</td></tr>`;
+      const unite = x.preset === "variance" ? "" : " $";
+      let h = `<table class="gr"><thead><tr><th class="g">Leg</th><th>Strike</th><th>Weight</th><th>Price used</th><th>Value today</th></tr></thead><tbody>`;
+      h += lig("Cash at expiry f(F)", "—", x.port.cash.toPrecision(6), "exp(−rT) = " + x.df.toFixed(5), (x.df * x.port.cash).toPrecision(6) + unite);
+      h += lig("Future (BTC)", fK(x.F), x.port.futures.toPrecision(6), "0 (no cost)", "0");
+      L.slice(0, 120).forEach(l => { h += lig(l.c ? "Call" : "Put", fK(l.K), l.w.toPrecision(5), fUSD(l.px), (l.w * l.px).toPrecision(6) + unite); });
+      if (L.length > 120) h += `<tr><td class="g" colspan="5">… ${L.length - 120} more legs</td></tr>`;
+      return h + "</tbody></table>";
+    }
+
+    function remplir() {
+      majMats();
+      lForm.hidden = selPay.value !== "formule";
+      let x;
+      try { x = calculer(); } catch (e) { x = {err: e.message}; }
+      if (x.err) { tete.textContent = x.err; tuiles.innerHTML = ""; g1.innerHTML = ""; g2.innerHTML = ""; g3.innerHTML = ""; tab.innerHTML = ""; note.textContent = ""; return; }
+      const varSw = x.preset === "variance";
+      tete.innerHTML = `<b>${fdate(D.jour)}</b> · maturity ${D.mats[+selMat.value].date} (T = ${(x.T * 365).toFixed(1)} d) · F = ${fK(x.F)} $ · `
+        + `${x.nOpt} options used out of ${x.nListe} listed · ATM IV ${isFinite(x.sigAtm) ? (100 * x.sigAtm).toFixed(1) + " %" : "—"} · model ${nomModele()}`;
+      const t = (l, v, dd) => `<div><div class="l">${l}</div><div class="v">${v}</div><div class="d">${dd}</div></div>`;
+      const iv = v => isFinite(v) && v > 0 ? (100 * Math.sqrt(v / x.df)).toFixed(2) + " %" : "—";
+      if (varSw) {
+        tuiles.innerHTML = t("Model-free IV (listed)", iv(x.vMkt), "variance " + (x.vMkt / x.df).toFixed(4) + " · " + selPrix.value)
+          + t("Executable", iv(x.ex.valeur), x.ex.manquants ? x.ex.manquants + " legs at the mark (missing side)" : "buy at the ask, sell at the bid")
+          + t("Smile, dense strikes", iv(x.vSmileDense), "interpolated mark IV, 600 strikes")
+          + t("Model, dense strikes", iv(x.vModDense), "the payoff under the model")
+          + t("Model, listed strikes", iv(x.vModListe), "discreteness: listed vs dense")
+          + t("ATM IV", isFinite(x.sigAtm) ? (100 * x.sigAtm).toFixed(2) + " %" : "—", "mark, at F");
+      } else {
+        const rel = x.echelle > 0 ? " (" + (100 * x.errMax / x.echelle).toFixed(2) + " % of max |f|)" : "";
+        tuiles.innerHTML = t("Cost (" + selPrix.value + ")", fUSD(x.vMkt), "replicating portfolio today")
+          + t("Executable cost", fUSD(x.ex.valeur), x.ex.manquants ? x.ex.manquants + " legs at the mark (missing side)" : "buy at the ask, sell at the bid")
+          + t("Smile, dense strikes", fUSD(x.vSmileDense), "same payoff, interpolated mark IV")
+          + t("Model, dense strikes", fUSD(x.vModDense), "the payoff under the model")
+          + t("Model, listed strikes", fUSD(x.vModListe), "the replica under the model")
+          + t("Max error at expiry", fUSD(x.errMax), "S within F·e^(±3σ√T)" + rel);
+      }
+      g1.innerHTML = courbes(x); g2.innerHTML = erreurs(x); g3.innerHTML = poidsSvg(x); tab.innerHTML = tableau(x);
+      note.textContent = "Listed vs dense strikes measures the cost of having only the listed strikes; market vs model "
+        + "measures how far the active model is from the market for this payoff. Weights are numbers of 1-BTC options "
+        + "(each pays (S − K)⁺ or (K − S)⁺ in dollars at expiry); the future position is in BTC."
+        + (selMeth.value === "gamma" && x.echelle > 0 && x.errMax > 0.05 * x.echelle
+           ? " Warning: the f″(K)·ΔK weights assume a smooth payoff; with a kink (call, straddle, spread) f″ is a "
+             + "Dirac mass and they fail: use the interpolation weights, exact at the listed strikes." : "");
+    }
+    [selMat, selPay, inK, inK2, inForm, selMeth, selPrix, inOi, chk].forEach(e => e.addEventListener("change", remplir));
+    inForm.addEventListener("keydown", e => { if (e.key === "Enter") remplir(); });
+    vueRep.__refaire = remplir;
+    let derniereRep = 0;
+    window.__majRep = () => {
+      if (vueRep.hidden) return;
+      if (S.opt && performance.now() - derniereRep < 1000) return;
+      derniereRep = performance.now(); remplir();
+    };
+  }
+
   const nav = document.createElement("nav");
   nav.className = "onglets";
   nav.setAttribute("role", "tablist");
@@ -4790,7 +5058,7 @@ async function __recupererDeribit(signale) {
     // panneau elargi quand le Monte-Carlo est ouvert (une classe plutot qu'un selecteur :has)
     { const mc = document.getElementById("mc-bloc"); espace.classList.toggle("mc-large", !!mc && mc.open && panneaux[i].contains(mc)); }
     /* Futures et Grecques prennent la zone centrale : les smiles cedent la place */
-    principal.hidden = (i === iFut) || (i === iGr) || (i === iSurf) || (i === iGex);
+    principal.hidden = (i === iFut) || (i === iGr) || (i === iSurf) || (i === iGex) || (i === iRep);
     if (vueFut) {
       vueFut.hidden = i !== iFut;
       if (i === iFut) vueFut.__refaire();   /* les canevas mesuraient 0 px tant que masques */
@@ -4806,6 +5074,10 @@ async function __recupererDeribit(signale) {
     if (vueGex) {
       vueGex.hidden = i !== iGex;
       if (i === iGex) vueGex.__refaire();
+    }
+    if (vueRep) {
+      vueRep.hidden = i !== iRep;
+      if (i === iRep) vueRep.__refaire();
     }
     barreMob.__maj(i);
     try { localStorage.setItem(CLE, String(i)); } catch (e) {}
